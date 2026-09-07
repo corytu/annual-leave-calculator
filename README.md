@@ -9,7 +9,7 @@
 - **週年制（週年制）計算**：依據到職日，逐年計算每個週年區間的特休天數，符合《勞動基準法》第 38 條規定
 - **勞基法自動套用**：預設依法定最低標準計算（6 個月、1 年、2 年、3 年、5 年、10 年以上各階段）
 - **公司自訂規則**：可設定各年資門檻的特休天數，並於低於勞基法最低標準時顯示警告
-- **假期遞延（Carryover）**：可選擇性開啟，將上一週年度未休完的天數帶入本年度
+- **假期遞延（Carryover）**：可選擇性開啟，逐年串接計算（chained ledger）遞延天數；每期優先扣抵上期帶入的餘額，用不完的部分視為已結清（不再繼續遞延），並顯示於首頁供對帳。系統也會檢查整條年資鏈，避免任何一期被扣到超過下一期額度的預支上限
 - **請假記錄管理**：新增、編輯、刪除請假記錄，支援 0.25 天（2 小時）為最小單位
 - **月曆介面**：點擊日期快速新增記錄，並以圓點標示有請假記錄的日期
 - **本機儲存**：所有資料儲存於瀏覽器 `localStorage`，無需帳號、無後端
@@ -42,16 +42,34 @@ npm run build
 
 建置結果輸出至 `dist/` 目錄。
 
-## 部署
+### 測試
 
-本專案使用 GitHub Actions 自動部署至 GitHub Pages。每次推送至 `master` 分支時，CI 流程會：
+```shell
+npm run test          # 單元測試（Vitest）
+npm run test:watch    # 單元測試（watch 模式）
+npm run test:coverage # 單元測試涵蓋率報告
+npm run test:e2e      # 端對端測試（Playwright）
+```
 
-1. 安裝相依套件
-2. 注入建置日期（`VITE_BUILD_DATE`）至 `.env.production`
-3. 執行 `npm run build`
-4. 將 `dist/` 目錄推送至 `gh-pages` 分支
+執行 `test:e2e` 前，需先安裝 Playwright 瀏覽器（僅需執行一次）：
 
-詳見 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)。
+```shell
+npx playwright install
+```
+
+## 部署與 CI
+
+本專案使用 GitHub Actions 進行持續整合與部署：
+
+- **PR 檢查**：每次對 `master` 分支發出 Pull Request 時，CI 會安裝相依套件並依序執行單元測試（Vitest）與端對端測試（Playwright）。詳見 [`.github/workflows/pr-checks.yml`](.github/workflows/pr-checks.yml)。
+- **自動部署**：每次推送至 `master` 分支時，CI 流程會：
+
+  1. 安裝相依套件
+  2. 注入建置日期（`VITE_BUILD_DATE`）至 `.env.production`
+  3. 執行 `npm run build`
+  4. 將 `dist/` 目錄推送至 `gh-pages` 分支
+
+  詳見 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)。
 
 ## 技術架構
 
