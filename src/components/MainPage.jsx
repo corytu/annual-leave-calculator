@@ -84,7 +84,7 @@ export default function MainPage({
           value={current.entitledDays}
           unit="天"
           sub={settings.allowCarryover && previous
-            ? `+ ${previous.carryoverDays} 天遞延`
+            ? `+ ${current.carryIn} 天遞延`
             : undefined}
         />
         <SummaryCard
@@ -114,10 +114,20 @@ export default function MainPage({
             <MiniStat
               testId="previous-carryover"
               label="遞延"
-              value={`${previous.carryoverDays} 天`}
+              value={`${previous.carryOut} 天`}
               accent
             />
           </div>
+        </div>
+      )}
+
+      {/* ── Settlement (unused days forfeited at the end of the previous period) ─ */}
+      {previous && (
+        <div className="bg-stone-50 border border-stone-200 rounded-xl px-5 py-3 text-center">
+          <p className="text-xs text-stone-500">已結清前年度未休工資天數（請與薪資條核對）</p>
+          <p className="text-base font-semibold text-stone-700 mt-1" data-testid="previous-settlement">
+            {previous.settlement} 天
+          </p>
         </div>
       )}
 
@@ -175,9 +185,11 @@ export default function MainPage({
         </div>
         <div className="p-4">
           <LeaveForm
+            settings={settings}
             periodStart={activePeriod.periodStart}
             periodEnd={activePeriod.periodEnd}
             records={activePeriodRecords}
+            allRecords={records}
             selectedDate={selectedDate}
             editingRecord={editingRecord}
             onAdd={onAddRecord}
