@@ -93,6 +93,17 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     await expect(page.getByText('日期必須在本週年度範圍內')).toBeVisible()
     await expect(page.getByText('本週年度尚無請假記錄')).toBeVisible()
   })
+
+  test('天數超出本期額度上限時顯示錯誤，不允許送出', async ({ page }) => {
+    // Current period entitlement is 7 days (12mo milestone); allowCarryover is
+    // false, so the overspend guard is exactly the period's own entitlement.
+    await page.locator('input[type="date"]').fill('2025-06-20')
+    await page.locator('input[type="number"]').first().fill('11')
+    await page.getByRole('button', { name: '新增', exact: true }).click()
+
+    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確')).toBeVisible()
+    await expect(page.getByText('本週年度尚無請假記錄')).toBeVisible()
+  })
 })
 
 test.describe('資料持久化', () => {

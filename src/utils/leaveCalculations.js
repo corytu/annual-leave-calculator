@@ -224,20 +224,6 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
   return getPeriodInfo(onboardDate, currentMilestone, ruleType, customRules);
 }
 
-/**
- * Return the period immediately before the one containing `today`.
- */
-export function getPreviousPeriod(onboardDate, ruleType, customRules, today = new Date()) {
-  const current = getPeriodContainingDate(onboardDate, today, ruleType, customRules);
-  if (!current || current.milestoneMonths === 0) return null;
-
-  const milestones = getMilestones(ruleType, customRules, current.milestoneMonths + 12);
-  const idx = milestones.indexOf(current.milestoneMonths);
-  if (idx <= 0) return null;
-
-  return getPeriodInfo(onboardDate, milestones[idx - 1], ruleType, customRules);
-}
-
 // ─── Leave-record helpers ────────────────────────────────────────────────────
 
 /**
@@ -253,6 +239,112 @@ export function getLeaveTakenInPeriod(records, periodStart, periodEnd) {
   }, 0);
 }
 
+// ─── Chained ledger ───────────────────────────────────────────────────────────
+
+/**
+ * Compute the full chain of periods from the very first milestone through the
+ * period containing `asOfDate`, threading an "old bucket" (carryIn) forward
+ * from period to period.
+ *
+ * When `allowCarryover` is true, each period first deducts `taken` from its
+ * carried-in balance (down to 0), then from its own entitlement. Whatever is
+ * left of the old bucket settles (is forfeited) rather than carrying forward
+ * again; only the remainder of the new bucket carries out to the next period.
+ * A negative old-bucket balance (prior overspend) merges into the new bucket's
+ * carry-out instead of settling.
+ *
+ * When `allowCarryover` is false, every period is fully independent: nothing
+ * carries in, and whatever is left of the entitlement at period end simply
+ * settles.
+ *
+ * @returns {Array<{
+ *   milestoneMonths, nextMilestoneMonths, periodStart, periodEnd,
+ *   carryIn, entitledDays, taken, oldEnd, newEnd, settlement, carryOut,
+ * }>}
+ */
+export function computePeriodLedger(onboardDate, ruleType, customRules, records, asOfDate, allowCarryover) {
+  const completedMonths = getCompletedMonths(onboardDate, asOfDate);
+  const milestones = getMilestones(ruleType, customRules, completedMonths + 12);
+  const chainMilestones = milestones.filter(m => m <= completedMonths);
+  if (chainMilestones.length === 0) return [];
+
+  const ledger = [];
+  for (const milestoneMonths of chainMilestones) {
+    const period = getPeriodInfo(onboardDate, milestoneMonths, ruleType, customRules);
+    const entitledDays = period.entitledDays;
+    const taken = getLeaveTakenInPeriod(records, period.periodStart, period.periodEnd);
+
+    let carryIn, oldEnd, newEnd, settlement, carryOut;
+    if (allowCarryover) {
+      carryIn = ledger.length === 0 ? 0 : ledger[ledger.length - 1].carryOut;
+      if (carryIn > 0) {
+        const deductFromOld = Math.min(carryIn, taken);
+        oldEnd = carryIn - deductFromOld;
+        newEnd = entitledDays - (taken - deductFromOld);
+      } else {
+        oldEnd = carryIn;
+        newEnd = entitledDays - taken;
+      }
+      if (oldEnd > 0) {
+        settlement = oldEnd;
+        carryOut = newEnd;
+      } else {
+        settlement = 0;
+        carryOut = newEnd + oldEnd;
+      }
+    } else {
+      carryIn = 0;
+      oldEnd = 0;
+      newEnd = entitledDays - taken;
+      settlement = newEnd;
+      carryOut = 0;
+    }
+
+    ledger.push({ ...period, carryIn, entitledDays, taken, oldEnd, newEnd, settlement, carryOut });
+  }
+  return ledger;
+}
+
+/**
+ * Validate that adding/editing a record keeps every period in the chain
+ * (from the first milestone through the latest period with data) within its
+ * allowed overspend guard.
+ *
+ * With carryover enabled, a period may legally run its available balance
+ * down to -(next period's entitlement), since that debt can be carried
+ * forward and repaid once. With carryover disabled, periods are independent
+ * and may never go negative at all.
+ *
+ * @returns {{ valid: true } | { valid: false, invalidPeriod: object, shortfall: number }}
+ */
+export function validateRecordsChain(settings, recordsAfterChange, asOfDate) {
+  const { onboardDate, ruleType, customRules, allowCarryover } = settings;
+  const onboard = parseLocalDate(onboardDate);
+
+  const latestRecordDate = recordsAfterChange.reduce(
+    (max, r) => { const d = parseLocalDate(r.startDate); return d > max ? d : max; },
+    asOfDate
+  );
+
+  const ledger = computePeriodLedger(onboard, ruleType, customRules, recordsAfterChange, latestRecordDate, allowCarryover);
+
+  for (const entry of ledger) {
+    if (allowCarryover) {
+      const availableTotal = entry.carryIn + entry.entitledDays - entry.taken;
+      const nextEntitled = getDaysForMilestone(entry.nextMilestoneMonths, ruleType, customRules);
+      if (availableTotal < -nextEntitled) {
+        return { valid: false, invalidPeriod: entry, shortfall: -nextEntitled - availableTotal };
+      }
+    } else {
+      const availableTotal = entry.entitledDays - entry.taken;
+      if (availableTotal < 0) {
+        return { valid: false, invalidPeriod: entry, shortfall: -availableTotal };
+      }
+    }
+  }
+  return { valid: true };
+}
+
 // ─── Top-level summary ────────────────────────────────────────────────────────
 
 /**
@@ -265,14 +357,14 @@ export function getLeaveTakenInPeriod(records, periodStart, periodEnd) {
  *   current: {
  *     ...periodInfo,
  *     taken: number,
- *     remaining: number,  // includes carryover if enabled
- *     baseRemaining: number,  // before carryover
+ *     carryIn: number,    // old bucket carried into this period
+ *     remaining: number,  // = carryIn + entitledDays - taken
  *   } | null,
  *   previous: {
  *     ...periodInfo,
  *     taken: number,
- *     remaining: number,
- *     carryoverDays: number,
+ *     settlement: number,  // days forfeited at the end of this period
+ *     carryOut: number,    // days carried into `current` (equal to current.carryIn)
  *   } | null,
  * }
  */
@@ -283,9 +375,9 @@ export function calculateSummary(settings, records, today = new Date()) {
   }
 
   const onboard = parseLocalDate(onboardDate);
-  const current = getPeriodContainingDate(onboard, today, ruleType, customRules);
+  const ledger = computePeriodLedger(onboard, ruleType, customRules, records, today, allowCarryover);
 
-  if (!current) {
+  if (ledger.length === 0) {
     const firstMilestone = getMilestones(ruleType, customRules, 12)[0];
     const firstDate = addMonthsToDate(onboard, firstMilestone);
     return {
@@ -296,36 +388,31 @@ export function calculateSummary(settings, records, today = new Date()) {
     };
   }
 
-  const currentTaken = getLeaveTakenInPeriod(records, current.periodStart, current.periodEnd);
-  const baseRemaining = current.entitledDays - currentTaken;
-
-  let previousResult = null;
-  let carryover = 0;
-
-  if (allowCarryover) {
-    const prev = getPreviousPeriod(onboard, ruleType, customRules, today);
-    if (prev) {
-      const prevTaken = getLeaveTakenInPeriod(records, prev.periodStart, prev.periodEnd);
-      const prevRemaining = prev.entitledDays - prevTaken;
-      carryover = Math.max(0, prevRemaining);
-      previousResult = {
-        ...prev,
-        taken: prevTaken,
-        remaining: prevRemaining,
-        carryoverDays: carryover,
-      };
-    }
-  }
+  const currentEntry = ledger[ledger.length - 1];
+  const previousEntry = ledger.length >= 2 ? ledger[ledger.length - 2] : null;
 
   return {
     hasLeave: true,
     current: {
-      ...current,
-      taken: currentTaken,
-      baseRemaining,
-      remaining: baseRemaining + carryover,
+      milestoneMonths: currentEntry.milestoneMonths,
+      nextMilestoneMonths: currentEntry.nextMilestoneMonths,
+      periodStart: currentEntry.periodStart,
+      periodEnd: currentEntry.periodEnd,
+      entitledDays: currentEntry.entitledDays,
+      taken: currentEntry.taken,
+      carryIn: currentEntry.carryIn,
+      remaining: currentEntry.carryIn + currentEntry.entitledDays - currentEntry.taken,
     },
-    previous: previousResult,
+    previous: previousEntry ? {
+      milestoneMonths: previousEntry.milestoneMonths,
+      nextMilestoneMonths: previousEntry.nextMilestoneMonths,
+      periodStart: previousEntry.periodStart,
+      periodEnd: previousEntry.periodEnd,
+      entitledDays: previousEntry.entitledDays,
+      taken: previousEntry.taken,
+      settlement: previousEntry.settlement,
+      carryOut: previousEntry.carryOut,
+    } : null,
   };
 }
 
