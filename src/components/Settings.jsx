@@ -34,7 +34,9 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
 
   useEffect(() => {
     if (ruleType === 'custom') {
-      setWarnings(checkLaborLawCompliance(customRules))
+      setWarnings(checkLaborLawCompliance(
+        customRules.map(r => ({ ...r, months: Number(r.months), days: Number(r.days) }))
+      ))
     } else {
       setWarnings([])
     }
@@ -44,7 +46,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
 
   function addCustomRule() {
     const sorted = [...customRules].sort((a, b) => a.months - b.months)
-    const lastMonths = sorted.length > 0 ? sorted[sorted.length - 1].months : 0
+    const lastMonths = sorted.length > 0 ? Number(sorted[sorted.length - 1].months) || 0 : 0
     setCustomRules(prev => [
       ...prev,
       { id: uuidv4(), months: lastMonths + 12, days: 15 },
@@ -70,15 +72,21 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
       return
     }
 
+    const normalizedRules = customRules.map(r => ({
+      ...r,
+      months: Number(r.months),
+      days: Number(r.days),
+    }))
+
     // Validate custom rules: months must be positive integers, days must be >0
     if (ruleType === 'custom') {
-      const sorted = [...customRules].sort((a, b) => a.months - b.months)
+      const sorted = [...normalizedRules].sort((a, b) => a.months - b.months)
       for (const r of sorted) {
         if (!Number.isInteger(r.months) || r.months < 1) {
           alert('年資門檻請填寫正整數（月數）')
           return
         }
-        if (r.days <= 0) {
+        if (!r.days || r.days <= 0) {
           alert('特休天數請填寫大於 0 的數字')
           return
         }
@@ -89,7 +97,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
       onboardDate,
       ruleType,
       customRules: ruleType === 'custom'
-        ? [...customRules].sort((a, b) => a.months - b.months)
+        ? [...normalizedRules].sort((a, b) => a.months - b.months)
         : DEFAULT_SETTINGS.customRules,
       allowCarryover,
     })
@@ -238,7 +246,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                               value={rule.months}
                               disabled={isLocked}
                               onChange={e =>
-                                updateCustomRule(rule.id, 'months', parseInt(e.target.value, 10) || 0)
+                                updateCustomRule(rule.id, 'months', e.target.value)
                               }
                               className="w-20 rounded border border-stone-300 px-2 py-1 text-sm
                                          focus:outline-none focus:ring-1 focus:ring-teal-500
@@ -256,7 +264,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                               value={rule.days}
                               disabled={isLocked}
                               onChange={e =>
-                                updateCustomRule(rule.id, 'days', parseFloat(e.target.value) || 0)
+                                updateCustomRule(rule.id, 'days', e.target.value)
                               }
                               className="w-20 rounded border border-stone-300 px-2 py-1 text-sm
                                          focus:outline-none focus:ring-1 focus:ring-teal-500

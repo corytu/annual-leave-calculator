@@ -74,6 +74,41 @@ test.describe('特休規則設定', () => {
     await expect(rows).toHaveCount(before - 1)
   })
 
+  test('每年可休天數輸入框：可以逐字元打出完整的小數（不會在打出小數點時被吃掉）', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const row = page.locator('table tbody tr').filter({ has: page.locator('input[value="12"]') })
+    const daysInput = row.locator('input[step="0.25"]')
+    await daysInput.fill('')
+    await daysInput.pressSequentially('4.75')
+
+    await expect(daysInput).toHaveValue('4.75')
+  })
+
+  test('每年可休天數輸入框：只打了負號就直接儲存時顯示錯誤，不允許存檔', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const row = page.locator('table tbody tr').filter({ has: page.locator('input[value="12"]') })
+    const daysInput = row.locator('input[step="0.25"]')
+    await daysInput.fill('')
+    // Typed character-by-character so it goes through the same real-input
+    // path as a user leaving the field mid-way through typing a number.
+    await daysInput.pressSequentially('-')
+
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('特休天數請填寫大於 0 的數字')
+    // Still on the settings page -- the save was blocked, nothing persisted.
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
   test('儲存自訂規則後首頁天數依自訂規則顯示', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 

@@ -54,6 +54,27 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     await expect(tile20.locator('.leave-dot')).toBeVisible()
   })
 
+  test('多天請假記錄跨越週末時：週末不標圓點，週末後的工作日仍標圓點', async ({ page }) => {
+    // 2025-06-20 is a Friday. 3 days -> Fri(20), skip Sat(21)/Sun(22), Mon(23), Tue(24).
+    await page.locator('input[type="date"]').fill('2025-06-20')
+    await page.locator('input[type="number"]').first().fill('3')
+    await page.getByRole('button', { name: '新增', exact: true }).click()
+
+    await expect(page.getByText('2025-06-20')).toBeVisible()
+
+    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }), exact: true })
+    const tile21 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 21 }), exact: true })
+    const tile22 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 22 }), exact: true })
+    const tile23 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 23 }), exact: true })
+    const tile24 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 24 }), exact: true })
+
+    await expect(tile20.locator('.leave-dot')).toBeVisible()
+    await expect(tile21.locator('.leave-dot')).toHaveCount(0)
+    await expect(tile22.locator('.leave-dot')).toHaveCount(0)
+    await expect(tile23.locator('.leave-dot')).toBeVisible()
+    await expect(tile24.locator('.leave-dot')).toBeVisible()
+  })
+
   test('編輯既有記錄：帶入原值、修改後清單與首頁同步更新', async ({ page }) => {
     await seedAppStorage(page, {
       settings: BASE_SETTINGS,
@@ -103,6 +124,22 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
 
     await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確')).toBeVisible()
     await expect(page.getByText('本週年度尚無請假記錄')).toBeVisible()
+  })
+
+  test('天數輸入框：清空欄位不會被強制填回 0', async ({ page }) => {
+    const daysInput = page.locator('input[type="number"]').first()
+    await daysInput.fill('3')
+    await daysInput.fill('')
+
+    await expect(daysInput).toHaveValue('')
+  })
+
+  test('天數輸入框：可以逐字元打出完整的小數（不會在打出小數點時被吃掉）', async ({ page }) => {
+    const daysInput = page.locator('input[type="number"]').first()
+    await daysInput.fill('')
+    await daysInput.pressSequentially('4.75')
+
+    await expect(daysInput).toHaveValue('4.75')
   })
 })
 

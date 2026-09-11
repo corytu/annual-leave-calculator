@@ -10,6 +10,7 @@ import {
   getPeriodInfo,
   getPeriodContainingDate,
   getLeaveTakenInPeriod,
+  getLeaveRecordDates,
   computePeriodLedger,
   validateRecordsChain,
   calculateSummary,
@@ -217,6 +218,26 @@ describe('getLeaveTakenInPeriod', () => {
       { startDate: '2024-04-01', days: 0.25 },
     ]
     expect(getLeaveTakenInPeriod(records, periodStart, periodEnd)).toBe(3.75)
+  })
+})
+
+describe('getLeaveRecordDates', () => {
+  it('skips the weekend and continues counting into the following week (2026-09-01 is a Tuesday)', () => {
+    expect(getLeaveRecordDates('2026-09-01', 5)).toEqual([
+      '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-07',
+    ])
+  })
+
+  it('does not cross into the weekend when the count already ends on a Friday (2026-08-31 is a Monday)', () => {
+    expect(getLeaveRecordDates('2026-08-31', 5)).toEqual([
+      '2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04',
+    ])
+  })
+
+  it('still marks the date of a fractional trailing day', () => {
+    expect(getLeaveRecordDates('2026-08-31', 2.5)).toEqual([
+      '2026-08-31', '2026-09-01', '2026-09-02',
+    ])
   })
 })
 

@@ -227,6 +227,27 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
 // ─── Leave-record helpers ────────────────────────────────────────────────────
 
 /**
+ * Expand a leave record's startDate + days into the list of calendar dates
+ * it actually spans, skipping Saturdays and Sundays. Each weekday consumes
+ * 1 unit of `days`; a fractional trailing day still counts as a spanned date.
+ */
+export function getLeaveRecordDates(startDate, days) {
+  const start = typeof startDate === 'string' ? parseLocalDate(startDate) : startDate;
+  const cursor = new Date(start);
+  const dates = [];
+  let remaining = days;
+  while (remaining > 0) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) {
+      dates.push(toISODateString(cursor));
+      remaining -= 1;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+/**
  * Sum leave days in `records` whose startDate falls within [periodStart, periodEnd].
  */
 export function getLeaveTakenInPeriod(records, periodStart, periodEnd) {
