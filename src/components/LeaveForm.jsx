@@ -37,18 +37,19 @@ export default function LeaveForm({
   const isEditing = Boolean(editingRecord)
 
   function validate() {
+    const parsedDays = parseFloat(days)
     if (!startDate) { setError('請選擇請假開始日期'); return false }
     const d = parseLocalDate(startDate)
     if (d < periodStart || d > periodEnd) {
       setError('日期必須在本週年度範圍內')
       return false
     }
-    if (!days || days <= 0) { setError('天數必須大於 0'); return false }
-    if (days % 0.25 !== 0) { setError('天數最小單位為 0.25（2 小時）'); return false }
+    if (!parsedDays || parsedDays <= 0) { setError('天數必須大於 0'); return false }
+    if (parsedDays % 0.25 !== 0) { setError('天數最小單位為 0.25（2 小時）'); return false }
 
     const candidateRecords = isEditing
-      ? allRecords.map(r => r.id === editingRecord.id ? { ...r, startDate, days } : r)
-      : [...allRecords, { startDate, days }]
+      ? allRecords.map(r => r.id === editingRecord.id ? { ...r, startDate, days: parsedDays } : r)
+      : [...allRecords, { startDate, days: parsedDays }]
 
     const chainResult = validateRecordsChain(settings, candidateRecords, new Date())
     if (!chainResult.valid) {
@@ -61,10 +62,11 @@ export default function LeaveForm({
 
   function handleSubmit() {
     if (!validate()) return
+    const parsedDays = parseFloat(days)
     if (isEditing) {
-      onUpdate(editingRecord.id, { startDate, days })
+      onUpdate(editingRecord.id, { startDate, days: parsedDays })
     } else {
-      onAdd({ startDate, days })
+      onAdd({ startDate, days: parsedDays })
     }
     resetForm()
   }
@@ -112,7 +114,7 @@ export default function LeaveForm({
                 max={30}
                 step={0.25}
                 value={days}
-                onChange={e => { setDays(parseFloat(e.target.value) || 0); setError('') }}
+                onChange={e => { setDays(e.target.value); setError('') }}
                 className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm
                            focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
@@ -124,7 +126,7 @@ export default function LeaveForm({
                   key={n}
                   onClick={() => setDays(n)}
                   className={`text-xs px-1.5 py-0.5 rounded border transition-colors
-                              ${days === n
+                              ${Number(days) === n
                                 ? 'bg-teal-100 border-teal-400 text-teal-800'
                                 : 'bg-stone-50 border-stone-200 text-stone-600 hover:border-stone-300'
                               }`}

@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import MainPage from './components/MainPage.jsx'
 import Settings from './components/Settings.jsx'
-import { loadSettings, saveSettings, loadRecords, saveRecords } from './utils/storage.js'
+import { loadSettings, saveSettings, loadRecords, saveRecords, clearAll, DEFAULT_SETTINGS } from './utils/storage.js'
 
 export default function App() {
   const [page, setPage] = useState('main')
@@ -44,6 +44,17 @@ export default function App() {
       saveRecords(next)
       return next
     })
+  }, [])
+
+  // ── Resignation reset ──────────────────────────────────────────────────────
+
+  const handleResign = useCallback(() => {
+    clearAll()
+    // Deliberately no saveSettings/saveRecords call here (unlike every handler
+    // above) -- the point is for both localStorage keys to stay removed.
+    setSettings({ ...DEFAULT_SETTINGS, customRules: [] })
+    setRecords([])
+    setPage('main')
   }, [])
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -98,8 +109,10 @@ export default function App() {
         ) : (
           <Settings
             settings={settings}
+            records={records}
             onSave={handleSaveSettings}
             onCancel={() => setPage('main')}
+            onResign={handleResign}
           />
         )}
       </main>

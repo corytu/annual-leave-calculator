@@ -12,6 +12,13 @@ const SETTINGS_WITH_CARRYOVER = {
   allowCarryover: true,
 }
 
+// This file focuses on chained-carryover *calculation* correctness (carryIn/
+// carryOut/settlement values, chain-validation failures). All assertions here
+// are readable from the default (newest) period tab without switching tabs,
+// except where a value only exists on an older period -- there, a tab click
+// is used purely as the means to reach that data, not as a UI behavior under
+// test. Period-tab UI behavior itself (labels, ordering, selection
+// persistence) lives in e2e/period-tabs.spec.js.
 test.describe('假期遞延', () => {
   test.beforeEach(async ({ page }) => {
     await freezeTime(page)
@@ -19,29 +26,11 @@ test.describe('假期遞延', () => {
     await page.goto('/')
   })
 
-  test('首頁出現上一週年度摘要卡片，遞延天數正確', async ({ page }) => {
-    await expect(page.getByText('上一週年度（遞延來源）')).toBeVisible()
-    await expect(page.getByTestId('previous-entitled')).toContainText('10')
-    await expect(page.getByTestId('previous-taken')).toContainText('0')
-    await expect(page.getByTestId('previous-carryover')).toContainText('10')
-
+  test('首頁摘要卡片正確顯示遞延進入本期的天數', async ({ page }) => {
     // Current period: entitled 14 + carryover 10 = 24 remaining.
     await expect(page.getByTestId('summary-entitled')).toContainText('14')
+    await expect(page.getByTestId('summary-carryin')).toContainText('10')
     await expect(page.getByTestId('summary-remaining')).toContainText('24')
-  })
-
-  test('出現本年度／上一年度分頁切換，且切換後月曆與表單範圍改變', async ({ page }) => {
-    await expect(page.getByRole('button', { name: '本年度' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '上一年度' })).toBeVisible()
-
-    // Defaults to showing the current period's range in the form.
-    await expect(page.locator('input[type="date"]')).toHaveAttribute('min', '2025-06-15')
-    await expect(page.locator('input[type="date"]')).toHaveAttribute('max', '2026-06-14')
-
-    await page.getByRole('button', { name: '上一年度' }).click()
-
-    await expect(page.locator('input[type="date"]')).toHaveAttribute('min', '2024-06-15')
-    await expect(page.locator('input[type="date"]')).toHaveAttribute('max', '2025-06-14')
   })
 
   test('前一週期繼承的舊桶剛好被本期用完，不影響本期自己的新桶依然正常遞延一次', async ({ page }) => {
@@ -56,8 +45,7 @@ test.describe('假期遞延', () => {
     })
     await page.reload()
 
-    await expect(page.getByTestId('previous-settlement')).toContainText('0')
-    await expect(page.getByTestId('previous-carryover')).toContainText('7')
+    await expect(page.getByTestId('summary-carryin')).toContainText('7')
     await expect(page.getByTestId('summary-remaining')).toContainText('21')
   })
 
@@ -76,8 +64,7 @@ test.describe('假期遞延', () => {
     })
     await page.reload()
 
-    await expect(page.getByTestId('previous-settlement')).toContainText('0')
-    await expect(page.getByTestId('previous-carryover')).toContainText('0')
+    await expect(page.getByTestId('summary-carryin')).toContainText('0')
     await expect(page.getByTestId('summary-remaining')).toContainText('14')
   })
 })
@@ -107,16 +94,15 @@ test.describe('跨兩個週年度的鏈式遞延', () => {
     await page.goto('/')
 
     await expect(page.getByTestId('summary-entitled')).toContainText('10')
+    await expect(page.getByTestId('summary-carryin')).toContainText('7')
     await expect(page.getByTestId('summary-remaining')).toContainText('17') // carryIn 7 + entitled 10 - taken 0
-    await expect(page.getByTestId('previous-settlement')).toContainText('1')
-    await expect(page.getByTestId('previous-carryover')).toContainText('7')
   })
 
-  test('編輯早期紀錄導致鏈式驗證失敗', async ({ page }) => {
+  test('直接編輯本期記錄超支可用額度時觸發鏈式驗證失敗', async ({ page }) => {
     // Frozen "today" 2025-01-15 -> completed months 16 -> current milestone 12
     // (7 days), previous milestone 6 (3 days). Initial state is legal:
     // 6~12mo has 1 day (carryOut 2), 12~24mo has 15 days
-    // (availableTotal = 2+7-15 = -6, not below the -10 threshold).
+    // (availableTotal = 2+7-15 = -10, exactly at the -10 threshold, not below it).
     await freezeTime(page, '2025-01-15T03:00:00')
     await seedAppStorage(page, {
       settings: CHAIN_SETTINGS,
@@ -127,20 +113,18 @@ test.describe('跨兩個週年度的鏈式遞延', () => {
     })
     await page.goto('/')
 
-    // Switch to the previous-period tab to reach the 6~12mo record.
-    await page.getByRole('button', { name: '上一年度' }).click()
+    // r2 already lives in the current (default-selected, newest) period, so no
+    // period-tab switch is needed to reach it -- this test is purely about the
+    // chain-validation calculation, not tab navigation.
     await page.getByRole('button', { name: '編輯' }).click()
-    await expect(page.locator('input[type="number"]').first()).toHaveValue('1')
+    await expect(page.locator('input[type="number"]').first()).toHaveValue('15')
 
-    // Editing this record to 10 days is legal in isolation (0+3-10 = -7, exactly
-    // at its own threshold), but it drops the carryIn flowing into 12~24mo from
-    // 2 to -7, pushing that period's availableTotal (-7+7-15 = -15) below its
-    // -10 threshold.
-    await page.locator('input[type="number"]').first().fill('10')
+    // Editing to 21 days pushes availableTotal to 2+7-21 = -12, below the -10 threshold.
+    await page.locator('input[type="number"]').first().fill('21')
     await page.getByRole('button', { name: '儲存變更' }).click()
 
     await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確')).toBeVisible()
-    await expect(page.getByTestId('record-days')).toContainText('1 天')
+    await expect(page.getByTestId('record-days')).toContainText('15 天')
   })
 })
 
@@ -155,7 +139,13 @@ test.describe('關閉遞延時仍顯示已結清天數', () => {
     })
     await page.goto('/')
 
-    await expect(page.getByText('上一週年度（遞延來源）')).not.toBeVisible()
-    await expect(page.getByTestId('previous-settlement')).toContainText('3')
+    // No carry-in box at all when carryover is off, regardless of which period is selected.
+    await expect(page.getByTestId('summary-carryin')).toHaveCount(0)
+
+    // The milestone-6 period (2024-03-01 ~ 2024-08-31) is reached via its tab
+    // (label "2024", same calendar year) -- this is "using the tab to reach the
+    // data", not a test of tab behavior itself.
+    await page.getByRole('button', { name: '2024', exact: true }).click()
+    await expect(page.getByTestId('summary-settlement')).toContainText('3')
   })
 })

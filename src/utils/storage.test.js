@@ -4,6 +4,7 @@ import {
   saveSettings,
   loadRecords,
   saveRecords,
+  clearAll,
   DEFAULT_SETTINGS,
 } from './storage.js'
 
@@ -63,5 +64,24 @@ describe('saveRecords -> loadRecords round trip', () => {
     ]
     saveRecords(records)
     expect(loadRecords()).toEqual(records)
+  })
+})
+
+describe('clearAll', () => {
+  it('removes both keys so loadSettings/loadRecords fall back to defaults', () => {
+    saveSettings({
+      onboardDate: '2022-03-10',
+      ruleType: 'custom',
+      customRules: [{ id: 'a', months: 6, days: 3 }],
+      allowCarryover: true,
+    })
+    saveRecords([{ id: '1', startDate: '2024-01-08', days: 1 }])
+
+    clearAll()
+
+    expect(localStorage.getItem('leaveCalculator_settings')).toBeNull()
+    expect(localStorage.getItem('leaveCalculator_records')).toBeNull()
+    expect(loadSettings()).toEqual(DEFAULT_SETTINGS)
+    expect(loadRecords()).toEqual([])
   })
 })

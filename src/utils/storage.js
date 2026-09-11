@@ -67,3 +67,11 @@ export function loadRecords() {
 export function saveRecords(records) {
   localStorage.setItem(KEYS.records, JSON.stringify(records));
 }
+
+// ─── Reset ────────────────────────────────────────────────────────────────────
+
+/** Removes both settings and records from localStorage entirely (resignation reset). */
+export function clearAll() {
+  localStorage.removeItem(KEYS.settings);
+  localStorage.removeItem(KEYS.records);
+}

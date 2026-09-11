@@ -1,5 +1,5 @@
 import Calendar from 'react-calendar'
-import { parseLocalDate, toISODateString } from '../utils/leaveCalculations.js'
+import { parseLocalDate, toISODateString, getLeaveRecordDates } from '../utils/leaveCalculations.js'
 
 /**
  * Thin wrapper around react-calendar that:
@@ -15,7 +15,7 @@ export default function LeaveCalendar({
   onDateClick,
 }) {
   // Build a Set of ISO date strings that have leave records for fast lookup
-  const leaveDates = new Set(records.map(r => r.startDate))
+  const leaveDates = new Set(records.flatMap(r => getLeaveRecordDates(r.startDate, r.days)))
 
   // The selected date as a Date object (or null)
   const selectedDateObj = selectedDate ? parseLocalDate(selectedDate) : null
