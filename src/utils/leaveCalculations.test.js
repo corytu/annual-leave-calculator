@@ -13,6 +13,7 @@ import {
   computePeriodLedger,
   validateRecordsChain,
   calculateSummary,
+  formatPeriodLabel,
   checkLaborLawCompliance,
 } from './leaveCalculations.js'
 
@@ -328,38 +329,42 @@ describe('validateRecordsChain', () => {
 describe('calculateSummary', () => {
   const today = d('2025-06-15')
 
-  it('reports hasLeave: false with a message when onboardDate is missing', () => {
+  it('reports hasLeave: false with a message and empty periods when onboardDate is missing', () => {
     const result = calculateSummary({ onboardDate: '', ruleType: 'labor', customRules: [], allowCarryover: false }, [], today)
     expect(result.hasLeave).toBe(false)
     expect(result.message).toBeTruthy()
+    expect(result.periods).toEqual([])
   })
 
-  it('reports hasLeave: false with a first-milestone message before minimum tenure', () => {
+  it('reports hasLeave: false with a first-milestone message and empty periods before minimum tenure', () => {
     const settings = { onboardDate: '2025-06-01', ruleType: 'labor', customRules: [], allowCarryover: false }
     const result = calculateSummary(settings, [], today)
     expect(result.hasLeave).toBe(false)
     expect(result.message).toContain('2025-12-01')
+    expect(result.periods).toEqual([])
   })
 
-  it('computes current period correctly with no carryover', () => {
+  it('computes the latest period correctly with no carryover', () => {
     // 2023-06-15 -> 2025-06-15 is exactly 24 completed months -> milestone 24 -> 10 days.
-    // There are two earlier periods (milestone 6 and 12), so `previous` here is
+    // There are two earlier periods (milestone 6 and 12), so periods[length-2] here is
     // milestone 12's period info -- allowCarryover only controls whether carryIn/
-    // carryOut are nonzero, not whether `previous` exists at all.
+    // carryOut are nonzero, not whether a previous period exists in the chain at all.
     const settings = { onboardDate: '2023-06-15', ruleType: 'labor', customRules: [], allowCarryover: false }
     // Current period starts exactly on 2025-06-15 (the milestone date), so a record
     // dated 2025-01-01 would actually fall in the *previous* period, not this one.
     const records = [{ startDate: '2025-06-20', days: 2 }]
     const result = calculateSummary(settings, records, today)
     expect(result.hasLeave).toBe(true)
-    expect(result.current.entitledDays).toBe(10)
-    expect(result.current.taken).toBe(2)
-    expect(result.current.carryIn).toBe(0)
-    expect(result.current.remaining).toBe(8)
-    expect(result.previous).not.toBeNull()
-    expect(result.previous.milestoneMonths).toBe(12)
-    expect(result.previous.settlement).toBe(7)
-    expect(result.previous.carryOut).toBe(0)
+    expect(result.periods).toHaveLength(3)
+    const current = result.periods[result.periods.length - 1]
+    const previous = result.periods[result.periods.length - 2]
+    expect(current.entitledDays).toBe(10)
+    expect(current.taken).toBe(2)
+    expect(current.carryIn).toBe(0)
+    expect(current.remaining).toBe(8)
+    expect(previous.milestoneMonths).toBe(12)
+    expect(previous.settlement).toBe(7)
+    expect(previous.carryOut).toBe(0)
   })
 
   it('adds carryover from the previous period when it has remaining days', () => {
@@ -368,10 +373,12 @@ describe('calculateSummary', () => {
     // Previous milestone 24 (10 days), no records taken anywhere in the chain -> carryOut 10
     const result = calculateSummary(settings, [], today)
     expect(result.hasLeave).toBe(true)
-    expect(result.previous).not.toBeNull()
-    expect(result.previous.carryOut).toBe(10)
-    expect(result.current.carryIn).toBe(10)
-    expect(result.current.remaining).toBe(result.current.entitledDays + 10)
+    expect(result.periods.length).toBeGreaterThanOrEqual(2)
+    const current = result.periods[result.periods.length - 1]
+    const previous = result.periods[result.periods.length - 2]
+    expect(previous.carryOut).toBe(10)
+    expect(current.carryIn).toBe(10)
+    expect(current.remaining).toBe(current.entitledDays + 10)
   })
 
   it('still carries forward the period\'s own untouched entitlement when its inherited old bucket is fully consumed by the spend', () => {
@@ -382,10 +389,12 @@ describe('calculateSummary', () => {
     // period's own new bucket (10 - 3 = 7) still carries forward.
     const records = [{ startDate: '2024-07-01', days: 10 }]
     const result = calculateSummary(settings, records, today)
-    expect(result.previous.settlement).toBe(0)
-    expect(result.previous.carryOut).toBe(7)
-    expect(result.current.carryIn).toBe(7)
-    expect(result.current.remaining).toBe(result.current.entitledDays + 7)
+    const current = result.periods[result.periods.length - 1]
+    const previous = result.periods[result.periods.length - 2]
+    expect(previous.settlement).toBe(0)
+    expect(previous.carryOut).toBe(7)
+    expect(current.carryIn).toBe(7)
+    expect(current.remaining).toBe(current.entitledDays + 7)
   })
 
   it('clamps carryover to 0 when several consecutive periods each fully use their own entitlement', () => {
@@ -398,10 +407,12 @@ describe('calculateSummary', () => {
       { startDate: '2024-07-01', days: 10 },
     ]
     const result = calculateSummary(settings, records, today)
-    expect(result.previous.settlement).toBe(0)
-    expect(result.previous.carryOut).toBe(0)
-    expect(result.current.carryIn).toBe(0)
-    expect(result.current.remaining).toBe(result.current.entitledDays)
+    const current = result.periods[result.periods.length - 1]
+    const previous = result.periods[result.periods.length - 2]
+    expect(previous.settlement).toBe(0)
+    expect(previous.carryOut).toBe(0)
+    expect(current.carryIn).toBe(0)
+    expect(current.remaining).toBe(current.entitledDays)
   })
 
   it('does not error when carryover is enabled but currently in the first period', () => {
@@ -409,7 +420,26 @@ describe('calculateSummary', () => {
     const settings = { onboardDate: '2024-12-01', ruleType: 'labor', customRules: [], allowCarryover: true }
     const result = calculateSummary(settings, [], today)
     expect(result.hasLeave).toBe(true)
-    expect(result.previous).toBeNull()
+    expect(result.periods).toHaveLength(1)
+  })
+
+  it('returns all periods in ascending time order when the chain spans 3+ periods', () => {
+    const settings = { onboardDate: '2022-06-15', ruleType: 'labor', customRules: [], allowCarryover: false }
+    const result = calculateSummary(settings, [], today)
+    expect(result.periods.length).toBeGreaterThanOrEqual(3)
+    for (let i = 1; i < result.periods.length; i++) {
+      expect(result.periods[i].periodStart.getTime()).toBeGreaterThan(result.periods[i - 1].periodStart.getTime())
+    }
+  })
+})
+
+describe('formatPeriodLabel', () => {
+  it('returns a plain year when the period starts and ends in the same calendar year', () => {
+    expect(formatPeriodLabel(d('2025-01-01'), d('2025-12-31'))).toBe('2025')
+  })
+
+  it('returns a year-range with an en dash when the period spans two calendar years', () => {
+    expect(formatPeriodLabel(d('2025-06-15'), d('2026-06-14'))).toBe('2025–26')
   })
 })
 

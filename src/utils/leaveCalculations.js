@@ -354,24 +354,17 @@ export function validateRecordsChain(settings, recordsAfterChange, asOfDate) {
  * {
  *   hasLeave: boolean,
  *   message?: string,   // shown when hasLeave is false
- *   current: {
- *     ...periodInfo,
- *     taken: number,
- *     carryIn: number,    // old bucket carried into this period
- *     remaining: number,  // = carryIn + entitledDays - taken
- *   } | null,
- *   previous: {
- *     ...periodInfo,
- *     taken: number,
- *     settlement: number,  // days forfeited at the end of this period
- *     carryOut: number,    // days carried into `current` (equal to current.carryIn)
- *   } | null,
+ *   periods: Array<{
+ *     milestoneMonths, nextMilestoneMonths, periodStart, periodEnd,
+ *     entitledDays, taken, carryIn, carryOut, settlement,
+ *     remaining,  // = carryIn + entitledDays - taken
+ *   }>,  // ascending by time; [] when hasLeave is false
  * }
  */
 export function calculateSummary(settings, records, today = new Date()) {
   const { onboardDate, ruleType, customRules, allowCarryover } = settings;
   if (!onboardDate) {
-    return { hasLeave: false, message: '請先在設定中填寫到職日。' };
+    return { hasLeave: false, message: '請先在設定中填寫到職日。', periods: [] };
   }
 
   const onboard = parseLocalDate(onboardDate);
@@ -383,37 +376,35 @@ export function calculateSummary(settings, records, today = new Date()) {
     return {
       hasLeave: false,
       message: `尚未達到最低服務年資（${firstMilestone} 個月），目前沒有特休假。到 ${toISODateString(firstDate)} 後將取得首批特休。`,
-      current: null,
-      previous: null,
+      periods: [],
     };
   }
 
-  const currentEntry = ledger[ledger.length - 1];
-  const previousEntry = ledger.length >= 2 ? ledger[ledger.length - 2] : null;
+  const periods = ledger.map(entry => ({
+    milestoneMonths: entry.milestoneMonths,
+    nextMilestoneMonths: entry.nextMilestoneMonths,
+    periodStart: entry.periodStart,
+    periodEnd: entry.periodEnd,
+    entitledDays: entry.entitledDays,
+    taken: entry.taken,
+    carryIn: entry.carryIn,
+    carryOut: entry.carryOut,
+    settlement: entry.settlement,
+    remaining: entry.carryIn + entry.entitledDays - entry.taken,
+  }));
 
-  return {
-    hasLeave: true,
-    current: {
-      milestoneMonths: currentEntry.milestoneMonths,
-      nextMilestoneMonths: currentEntry.nextMilestoneMonths,
-      periodStart: currentEntry.periodStart,
-      periodEnd: currentEntry.periodEnd,
-      entitledDays: currentEntry.entitledDays,
-      taken: currentEntry.taken,
-      carryIn: currentEntry.carryIn,
-      remaining: currentEntry.carryIn + currentEntry.entitledDays - currentEntry.taken,
-    },
-    previous: previousEntry ? {
-      milestoneMonths: previousEntry.milestoneMonths,
-      nextMilestoneMonths: previousEntry.nextMilestoneMonths,
-      periodStart: previousEntry.periodStart,
-      periodEnd: previousEntry.periodEnd,
-      entitledDays: previousEntry.entitledDays,
-      taken: previousEntry.taken,
-      settlement: previousEntry.settlement,
-      carryOut: previousEntry.carryOut,
-    } : null,
-  };
+  return { hasLeave: true, periods };
+}
+
+/**
+ * Format a period's date range as a compact year label for tab display.
+ * Same calendar year → "2025"; spans two years → "2025–26" (en dash, U+2013).
+ */
+export function formatPeriodLabel(periodStart, periodEnd) {
+  const startYear = periodStart.getFullYear();
+  const endYear = periodEnd.getFullYear();
+  if (startYear === endYear) return `${startYear}`;
+  return `${startYear}–${String(endYear).slice(-2)}`;
 }
 
 // ─── Compliance check ─────────────────────────────────────────────────────────

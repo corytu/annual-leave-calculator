@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime, seedAppStorage } from './helpers.js'
+import { freezeTime } from './helpers.js'
 
 test.describe('首次使用與設定流程', () => {
   test.beforeEach(async ({ page }) => {
@@ -35,19 +35,11 @@ test.describe('首次使用與設定流程', () => {
 test.describe('特休規則設定', () => {
   test.beforeEach(async ({ page }) => {
     await freezeTime(page)
-    // Seed an onboard date so the main page has something to show once we
-    // navigate back to it; this round of tests focuses on the rule editor
-    // itself, not on re-proving the date picker (covered above).
-    await seedAppStorage(page, {
-      settings: {
-        onboardDate: '2024-06-15', // exactly 12 months before frozen "today"
-        ruleType: 'labor',
-        customRules: [],
-        allowCarryover: false,
-      },
-    })
+    // No seeded settings: once onboardDate is saved, the settings page locks
+    // and the rule editor becomes read-only (see resignation.spec.js), so the
+    // only place left to exercise rule-editing is before the first save.
     await page.goto('/')
-    await page.getByRole('button', { name: '設定' }).click()
+    await page.getByRole('button', { name: '前往設定' }).click()
   })
 
   test('預設顯示勞基法對照表', async ({ page }) => {
@@ -90,6 +82,10 @@ test.describe('特休規則設定', () => {
     const row = page.locator('table tbody tr').filter({ has: page.locator('input[value="12"]') })
     await row.locator('input[step="0.25"]').fill('20')
 
+    // Filling the onboard date is only a necessary precondition for the save
+    // to go through (settings are unlocked here, before any first save) --
+    // this test's only assertion focus stays on the custom rule taking effect.
+    await page.locator('input[type="date"]').fill('2024-06-15') // 12 months before frozen "today"
     await page.getByRole('button', { name: '儲存設定' }).click()
 
     await expect(page.getByTestId('summary-entitled')).toContainText('20')

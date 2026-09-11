@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { calculateSummary, toISODateString, parseLocalDate } from '../utils/leaveCalculations.js'
+import { useState, useMemo, useEffect } from 'react'
+import { calculateSummary, formatPeriodLabel, toISODateString, parseLocalDate } from '../utils/leaveCalculations.js'
 import LeaveCalendar from './LeaveCalendar.jsx'
 import LeaveForm from './LeaveForm.jsx'
 
@@ -16,13 +16,29 @@ export default function MainPage({
     () => calculateSummary(settings, records, today),
     [settings, records, today]
   )
+  const periods = summary.periods ?? []
 
-  // Which period tab is active when carryover is enabled
-  const [periodTab, setPeriodTab] = useState('current')
+  // Which period's tab is selected, keyed by milestoneMonths (stable across
+  // record edits, unlike an array index or a Date object reference).
+  const [selectedMilestone, setSelectedMilestone] = useState(null)
   // Date selected by clicking the calendar (pre-fills the form)
   const [selectedDate, setSelectedDate] = useState(null)
   // Record being edited (null = add mode)
   const [editingRecord, setEditingRecord] = useState(null)
+
+  // Default to the newest period on first load, without ever snapping back
+  // to it afterwards once the user has picked a period themselves.
+  useEffect(() => {
+    if (selectedMilestone == null && periods.length > 0) {
+      setSelectedMilestone(periods[periods.length - 1].milestoneMonths)
+    }
+  }, [periods, selectedMilestone])
+
+  // After a resignation reset, onboardDate is cleared -- reset selection so a
+  // future re-onboarding correctly re-defaults to the newest period again.
+  useEffect(() => {
+    if (!settings.onboardDate) setSelectedMilestone(null)
+  }, [settings.onboardDate])
 
   // ── No leave yet / not set up ──────────────────────────────────────────────
 
@@ -47,11 +63,15 @@ export default function MainPage({
     )
   }
 
-  const { current, previous } = summary
-  const showTabs = settings.allowCarryover && previous
+  const activePeriod =
+    periods.find(p => p.milestoneMonths === selectedMilestone) ??
+    periods[periods.length - 1]
 
-  // Determine which period's records to show/manage
-  const activePeriod = (showTabs && periodTab === 'previous') ? previous : current
+  const isNewest = activePeriod.milestoneMonths === periods[periods.length - 1].milestoneMonths
+  const isEarliest = activePeriod.milestoneMonths === periods[0].milestoneMonths
+  const showCarryIn = settings.allowCarryover && !isEarliest
+  const showSettlementOut = !isNewest
+
   const activePeriodRecords = records.filter(r => {
     const d = parseLocalDate(r.startDate)
     return d >= activePeriod.periodStart && d <= activePeriod.periodEnd
@@ -72,62 +92,52 @@ export default function MainPage({
     setSelectedDate(null)
   }
 
+  function handleSelectPeriod(milestoneMonths) {
+    setSelectedMilestone(milestoneMonths)
+    setEditingRecord(null)
+    setSelectedDate(null)
+  }
+
   return (
     <div className="space-y-5">
       <OnboardBanner settings={settings} />
 
-      {/* ── Summary cards ──────────────────────────────────────────────── */}
+      {/* ── Summary cards (follow the selected period tab) ────────────────── */}
       <div className="grid grid-cols-3 gap-3">
         <SummaryCard
           testId="summary-entitled"
-          label="本年度天數"
-          value={current.entitledDays}
+          label="當期天數"
+          value={activePeriod.entitledDays}
           unit="天"
-          sub={settings.allowCarryover && previous
-            ? `+ ${current.carryIn} 天遞延`
-            : undefined}
         />
         <SummaryCard
           testId="summary-taken"
           label="已休天數"
-          value={current.taken}
+          value={activePeriod.taken}
           unit="天"
         />
         <SummaryCard
           testId="summary-remaining"
           label="剩餘可休"
-          value={current.remaining}
+          value={activePeriod.remaining}
           unit="天"
           highlight
         />
       </div>
 
-      {/* ── Previous period summary (carryover) ────────────────────────── */}
-      {settings.allowCarryover && previous && (
+      {(showCarryIn || showSettlementOut) && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
-          <p className="text-xs font-semibold text-amber-700 mb-2 uppercase tracking-wide">
-            上一週年度（遞延來源）
-          </p>
           <div className="grid grid-cols-3 gap-3">
-            <MiniStat testId="previous-entitled" label="共" value={`${previous.entitledDays} 天`} />
-            <MiniStat testId="previous-taken" label="已休" value={`${previous.taken} 天`} />
-            <MiniStat
-              testId="previous-carryover"
-              label="遞延"
-              value={`${previous.carryOut} 天`}
-              accent
-            />
+            {showCarryIn && (
+              <MiniStat testId="summary-carryin" label="遞延進入本期" value={`${activePeriod.carryIn} 天`} accent />
+            )}
+            {showSettlementOut && (
+              <>
+                <MiniStat testId="summary-settlement" label="已結清未休工資天數" value={`${activePeriod.settlement} 天`} />
+                <MiniStat testId="summary-carryout" label="遞延至下一期" value={`${activePeriod.carryOut} 天`} accent />
+              </>
+            )}
           </div>
-        </div>
-      )}
-
-      {/* ── Settlement (unused days forfeited at the end of the previous period) ─ */}
-      {previous && (
-        <div className="bg-stone-50 border border-stone-200 rounded-xl px-5 py-3 text-center">
-          <p className="text-xs text-stone-500">已結清前年度未休工資天數（請與薪資條核對）</p>
-          <p className="text-base font-semibold text-stone-700 mt-1" data-testid="previous-settlement">
-            {previous.settlement} 天
-          </p>
         </div>
       )}
 
@@ -135,31 +145,26 @@ export default function MainPage({
       <div className="text-xs text-stone-400 text-center">
         本年度週年制區間：
         <span className="text-stone-600 font-medium">
-          {toISODateString(current.periodStart)}
+          {toISODateString(activePeriod.periodStart)}
         </span>
         {' '}～{' '}
         <span className="text-stone-600 font-medium">
-          {toISODateString(current.periodEnd)}
+          {toISODateString(activePeriod.periodEnd)}
         </span>
       </div>
 
-      {/* ── Period tabs (when carryover enabled) ────────────────────────── */}
-      {showTabs && (
-        <div className="flex border-b border-stone-200 gap-0">
+      {/* ── Period tabs ──────────────────────────────────────────────────── */}
+      <div data-testid="period-tabs" className="flex border-b border-stone-200 gap-0 overflow-x-auto whitespace-nowrap">
+        {[...periods].reverse().map(p => (
           <TabButton
-            active={periodTab === 'current'}
-            onClick={() => { setPeriodTab('current'); setEditingRecord(null); setSelectedDate(null) }}
+            key={p.milestoneMonths}
+            active={p.milestoneMonths === activePeriod.milestoneMonths}
+            onClick={() => handleSelectPeriod(p.milestoneMonths)}
           >
-            本年度
+            {formatPeriodLabel(p.periodStart, p.periodEnd)}
           </TabButton>
-          <TabButton
-            active={periodTab === 'previous'}
-            onClick={() => { setPeriodTab('previous'); setEditingRecord(null); setSelectedDate(null) }}
-          >
-            上一年度
-          </TabButton>
-        </div>
-      )}
+        ))}
+      </div>
 
       {/* ── Calendar ────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
@@ -258,7 +263,7 @@ function TabButton({ active, onClick, children }) {
   return (
     <button
       onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors
+      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex-shrink-0
                   ${active
                     ? 'border-teal-600 text-teal-700'
                     : 'border-transparent text-stone-500 hover:text-stone-700'

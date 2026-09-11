@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { checkLaborLawCompliance, getLaborLawDays } from '../utils/leaveCalculations.js'
+import { checkLaborLawCompliance, getLaborLawDays, calculateSummary, toISODateString } from '../utils/leaveCalculations.js'
+import { buildBackupCsv, downloadCsv } from '../utils/exportCsv.js'
 import { DEFAULT_SETTINGS } from '../utils/storage.js'
 
 // Default custom rules pre-populated with labor law as a starting point
@@ -13,7 +14,9 @@ const DEFAULT_CUSTOM_RULES = [
   { id: uuidv4(), months: 120, days: 16 },
 ]
 
-export default function Settings({ settings, onSave, onCancel }) {
+export default function Settings({ settings, records, onSave, onCancel, onResign }) {
+  const isLocked = Boolean(settings.onboardDate)
+
   const [onboardDate,    setOnboardDate]    = useState(settings.onboardDate    || '')
   const [ruleType,       setRuleType]       = useState(settings.ruleType       || 'labor')
   const [customRules,    setCustomRules]    = useState(
@@ -25,6 +28,9 @@ export default function Settings({ settings, onSave, onCancel }) {
 
   // Compliance warnings derived from current custom rules
   const [warnings, setWarnings] = useState([])
+
+  // 'confirm' -> first "are you sure" dialog, 'settlement' -> shows the payout figure
+  const [resignStep, setResignStep] = useState(null)
 
   useEffect(() => {
     if (ruleType === 'custom') {
@@ -89,6 +95,25 @@ export default function Settings({ settings, onSave, onCancel }) {
     })
   }
 
+  // ── Resignation reset ────────────────────────────────────────────────────
+
+  const resignSummary = calculateSummary(settings, records, new Date())
+  const settlementDays = resignSummary.hasLeave
+    ? resignSummary.periods[resignSummary.periods.length - 1].remaining
+    : 0
+
+  function handleExportCsv() {
+    downloadCsv(
+      `annual-leave-backup-${toISODateString(new Date())}.csv`,
+      buildBackupCsv(settings, records, resignSummary)
+    )
+  }
+
+  function handleConfirmResign() {
+    onResign()
+    setResignStep(null)
+  }
+
   const sortedRules = [...customRules].sort((a, b) => a.months - b.months)
 
   return (
@@ -107,9 +132,11 @@ export default function Settings({ settings, onSave, onCancel }) {
           <input
             type="date"
             value={onboardDate}
+            disabled={isLocked}
             onChange={e => setOnboardDate(e.target.value)}
             className="block w-full sm:w-48 rounded-md border border-stone-300 px-3 py-2 text-sm
-                       focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                       focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500
+                       disabled:bg-stone-100 disabled:text-stone-500"
           />
           <p className="text-xs text-stone-400 mt-1">
             特休年資的計算起點
@@ -124,12 +151,14 @@ export default function Settings({ settings, onSave, onCancel }) {
           <div className="flex flex-col sm:flex-row gap-3">
             <RuleTypeCard
               selected={ruleType === 'labor'}
+              disabled={isLocked}
               onClick={() => setRuleType('labor')}
               title="按勞基法第38條"
               description="依法定最低標準自動套用，含6個月、1年、2年等各階段。"
             />
             <RuleTypeCard
               selected={ruleType === 'custom'}
+              disabled={isLocked}
               onClick={() => setRuleType('custom')}
               title="公司另有規定"
               description="自訂各年資門檻的特休天數。"
@@ -207,11 +236,13 @@ export default function Settings({ settings, onSave, onCancel }) {
                               min={1}
                               step={1}
                               value={rule.months}
+                              disabled={isLocked}
                               onChange={e =>
                                 updateCustomRule(rule.id, 'months', parseInt(e.target.value, 10) || 0)
                               }
                               className="w-20 rounded border border-stone-300 px-2 py-1 text-sm
-                                         focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                         focus:outline-none focus:ring-1 focus:ring-teal-500
+                                         disabled:bg-stone-100 disabled:text-stone-500"
                             />
                             <span className="text-stone-500 text-xs">個月</span>
                           </div>
@@ -223,11 +254,13 @@ export default function Settings({ settings, onSave, onCancel }) {
                               min={0}
                               step={0.25}
                               value={rule.days}
+                              disabled={isLocked}
                               onChange={e =>
                                 updateCustomRule(rule.id, 'days', parseFloat(e.target.value) || 0)
                               }
                               className="w-20 rounded border border-stone-300 px-2 py-1 text-sm
-                                         focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                         focus:outline-none focus:ring-1 focus:ring-teal-500
+                                         disabled:bg-stone-100 disabled:text-stone-500"
                             />
                             <span className="text-stone-500 text-xs">天</span>
                           </div>
@@ -235,7 +268,9 @@ export default function Settings({ settings, onSave, onCancel }) {
                         <td className="px-3 py-2 text-right">
                           <button
                             onClick={() => removeCustomRule(rule.id)}
-                            className="text-stone-400 hover:text-red-500 transition-colors"
+                            disabled={isLocked}
+                            className="text-stone-400 hover:text-red-500 transition-colors
+                                       disabled:opacity-40 disabled:hover:text-stone-400 disabled:cursor-not-allowed"
                             aria-label="刪除此規則"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -251,8 +286,10 @@ export default function Settings({ settings, onSave, onCancel }) {
 
               <button
                 onClick={addCustomRule}
+                disabled={isLocked}
                 className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-900
-                           font-medium transition-colors"
+                           font-medium transition-colors
+                           disabled:opacity-40 disabled:hover:text-teal-700 disabled:cursor-not-allowed"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -272,6 +309,7 @@ export default function Settings({ settings, onSave, onCancel }) {
               type="checkbox"
               role="switch"
               checked={allowCarryover}
+              disabled={isLocked}
               onChange={() => setAllowCarryover(v => !v)}
               className="peer sr-only"
             />
@@ -280,7 +318,8 @@ export default function Settings({ settings, onSave, onCancel }) {
               className="h-6 w-10 rounded-full bg-stone-300 transition-colors
                         peer-checked:bg-teal-600
                         peer-focus-visible:ring-2 peer-focus-visible:ring-teal-500
-                        peer-focus-visible:ring-offset-1"
+                        peer-focus-visible:ring-offset-1
+                        peer-disabled:opacity-50"
             />
             {/* 圓點 */}
             <span
@@ -299,23 +338,89 @@ export default function Settings({ settings, onSave, onCancel }) {
 
       {/* ── Action buttons ───────────────────────────────────────────────── */}
       <div className="flex gap-3 pt-2">
+        {!isLocked && (
+          <>
+            <button
+              onClick={handleSave}
+              className="px-5 py-2 bg-teal-700 text-white text-sm font-medium rounded-md
+                         hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500
+                         focus:ring-offset-1 transition-colors"
+            >
+              儲存設定
+            </button>
+            <button
+              onClick={onCancel}
+              className="px-5 py-2 text-stone-600 text-sm font-medium rounded-md
+                         hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-stone-400
+                         focus:ring-offset-1 transition-colors"
+            >
+              取消
+            </button>
+          </>
+        )}
         <button
-          onClick={handleSave}
-          className="px-5 py-2 bg-teal-700 text-white text-sm font-medium rounded-md
-                     hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500
-                     focus:ring-offset-1 transition-colors"
+          onClick={() => setResignStep('confirm')}
+          disabled={!isLocked}
+          className="px-5 py-2 text-red-600 text-sm font-medium rounded-md border border-red-200
+                     hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400
+                     focus:ring-offset-1 transition-colors
+                     disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
         >
-          儲存設定
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-5 py-2 text-stone-600 text-sm font-medium rounded-md
-                     hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-stone-400
-                     focus:ring-offset-1 transition-colors"
-        >
-          取消
+          離職重來
         </button>
       </div>
+
+      {/* ── 離職重來 modals ──────────────────────────────────────────────── */}
+      {resignStep === 'confirm' && (
+        <Modal>
+          <p className="text-sm text-stone-700">
+            離職將清除現有到職日設定與休假記錄，是否確定執行？
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => setResignStep(null)}
+              className="px-4 py-2 text-stone-600 text-sm font-medium rounded-md hover:bg-stone-100 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => setResignStep('settlement')}
+              className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors"
+            >
+              確定
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {resignStep === 'settlement' && (
+        <Modal>
+          <p className="text-sm text-stone-700">
+            應結清工資天數：<span className="font-semibold">{settlementDays}</span> 天
+          </p>
+          <div className="flex flex-wrap justify-end gap-3">
+            <button
+              onClick={handleExportCsv}
+              className="px-4 py-2 text-teal-700 text-sm font-medium rounded-md border border-teal-200
+                         hover:bg-teal-50 transition-colors"
+            >
+              匯出 CSV 備份
+            </button>
+            <button
+              onClick={() => setResignStep(null)}
+              className="px-4 py-2 text-stone-600 text-sm font-medium rounded-md hover:bg-stone-100 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleConfirmResign}
+              className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors"
+            >
+              確定清空
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -331,15 +436,17 @@ function Section({ title, children }) {
   )
 }
 
-function RuleTypeCard({ selected, onClick, title, description }) {
+function RuleTypeCard({ selected, disabled, onClick, title, description }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className={`flex-1 text-left rounded-lg border-2 px-4 py-3 transition-all
                   ${selected
                     ? 'border-teal-600 bg-teal-50'
                     : 'border-stone-200 bg-white hover:border-stone-300'
-                  }`}
+                  }
+                  ${disabled ? 'opacity-60 cursor-not-allowed hover:border-stone-200' : ''}`}
     >
       <div className="flex items-center gap-2 mb-1">
         <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center
@@ -352,5 +459,15 @@ function RuleTypeCard({ selected, onClick, title, description }) {
       </div>
       <p className="text-xs text-stone-500 pl-6">{description}</p>
     </button>
+  )
+}
+
+function Modal({ children }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6 space-y-4">
+        {children}
+      </div>
+    </div>
   )
 }
