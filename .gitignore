@@ -1,3 +1,9 @@
+# MacOS general files
+.DS_Store
+
+# Local test results
+test-results/
+
 # Logs
 logs
 *.log
