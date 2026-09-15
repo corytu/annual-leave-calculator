@@ -56,7 +56,8 @@ fi
 
 CODER_MODEL="claude-sonnet-5"
 REVIEWER_MODEL="claude-opus-5"
-EFFORT="high"
+CODER_EFFORT="high"
+REVIEWER_EFFORT="high"
 MAX_ROUNDS=5
 LOG_ROOT=".agent-log"
 MAX_PROMPT_BYTES=800000
@@ -128,18 +129,53 @@ assert_reasonable_size() {
 }
 
 coder_call() {
-  local prompt_file="$1" perm_mode="$2"
+  # coder_call <prompt-file> <permission-mode> [recovery-context-file]
+  # recovery-context-file(可省略):如果 --resume 失敗且是已知的「session 遺失」問題
+  # (Claude Code headless 模式下的已知 bug,在 devcontainer 這類非標準環境更容易觸發),
+  # 就用這份內容重新開一個新 session、手動把進度接回去,而不是讓整支腳本崩潰、
+  # 白費前面幾輪的工。
+  local prompt_file="$1" perm_mode="$2" recovery_file="${3:-}"
   assert_reasonable_size "${prompt_file}" "Coder prompt"
+
   local resume_args=()
   if [[ -f "${CODER_SESSION_FILE}" ]]; then
     resume_args=(--resume "$(cat "${CODER_SESSION_FILE}")")
   fi
-  claude -p "$(cat "${prompt_file}")" \
+
+  local resp
+  resp="$(claude -p "$(cat "${prompt_file}")" \
     --model "${CODER_MODEL}" \
-    --effort "${EFFORT}" \
+    --effort "${CODER_EFFORT}" \
     --permission-mode "${perm_mode}" \
     --output-format json \
-    "${resume_args[@]}"
+    "${resume_args[@]}")"
+
+  if ((${#resume_args[@]} > 0)) && \
+     echo "${resp}" | jq -e '.is_error == true and (.result | test("No conversation found"))' >/dev/null 2>&1; then
+    echo "⚠️ 偵測到已知的 Claude Code --resume 問題(session 遺失),自動開新 session 接續進度。" >&2
+    rm -f "${CODER_SESSION_FILE}"
+    local recovered_prompt="${prompt_file}.recovered"
+    {
+      echo "(注意:因為 Claude Code 已知的 --resume 問題,你先前的 session 遺失了,"
+      echo "這是一個全新的 session。以下先提供你目前的進度作為基準,再接原本的請求。)"
+      echo
+      if [[ -n "${recovery_file}" && -f "${recovery_file}" ]]; then
+        echo "## 目前進度"
+        cat "${recovery_file}"
+        echo
+      fi
+      echo "## 原本的請求"
+      cat "${prompt_file}"
+    } >"${recovered_prompt}"
+
+    resp="$(claude -p "$(cat "${recovered_prompt}")" \
+      --model "${CODER_MODEL}" \
+      --effort "${CODER_EFFORT}" \
+      --permission-mode "${perm_mode}" \
+      --output-format json)"
+  fi
+
+  echo "${resp}"
 }
 
 reviewer_call() {
@@ -148,7 +184,7 @@ reviewer_call() {
   assert_reasonable_size "${prompt_file}" "Reviewer prompt"
   claude -p "$(cat "${prompt_file}")" \
     --model "${REVIEWER_MODEL}" \
-    --effort "${EFFORT}" \
+    --effort "${REVIEWER_EFFORT}" \
     --allowedTools "Read,Grep,Glob" \
     --output-format json \
     --json-schema "${VERDICT_SCHEMA}"
@@ -264,8 +300,11 @@ run_plan_review_loop() {
       echo "${verdict_json}"
     } >"${cprompt}"
 
+    local plan_snapshot="${RUN_DIR}/round-${round}-plan-snapshot.txt"
+    echo "${plan_text}" >"${plan_snapshot}"
+
     local cresp
-    cresp="$(coder_call "${cprompt}" "plan")"
+    cresp="$(coder_call "${cprompt}" "plan" "${plan_snapshot}")"
     require_success "${cresp}" "Coder(round ${round} revise)"
     save_session_id "${cresp}" "${CODER_SESSION_FILE}"
     local new_plan_text
@@ -352,7 +391,7 @@ run_diff_review_loop() {
     } >"${cprompt}"
 
     local cresp
-    cresp="$(coder_call "${cprompt}" "bypassPermissions")"
+    cresp="$(coder_call "${cprompt}" "bypassPermissions" "${diff_file}")"
     require_success "${cresp}" "Coder(diff round ${round} fix)"
     save_session_id "${cresp}" "${CODER_SESSION_FILE}"
     log "round-${round}-diff" "Coder(fix)" "$(echo "${cresp}" | jq -r '.result')"
