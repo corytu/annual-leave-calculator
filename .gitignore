@@ -4,6 +4,9 @@
 # Local test results
 test-results/
 
+# Agent loop runtime logs & session state
+.agent-log/
+
 # Logs
 logs
 *.log
