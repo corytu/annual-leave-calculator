@@ -14,29 +14,32 @@ set -euo pipefail
 #       concept-plan-file 可省略;若這次沒有先跑過 plan 審查(Reviewer/Coder 都還沒看過
 #       概念計畫),建議帶上,讓兩者這次修正/審查時能對照原始設計決策。
 #
-#   ./agent-loop.sh reset
-#       清除目前 git branch 對應的 Coder session 記錄,下次 plan/diff 會開全新 session。
-#
 # 前置需求:
 #   - bash 4.4+、jq、git、claude CLI(已用訂閱 OAuth token 完成認證)
 #   - 在 git repo 根目錄底下執行
 #
 # 設計重點:
-#   - Coder 是唯一會跨輪、跨 plan/diff 兩個階段延續記憶的 session:狀態存在
-#     `.agent-log/.state/<目前 git branch>/coder-session-id`,跟 branch 綁定。
-#     想重新開始就跑 `./agent-loop.sh reset`。
-#   - Reviewer 完全 stateless:每一輪都是全新 session,不 --resume。它對「自己
-#     上一輪說過什麼」的記憶,是靠腳本把上一輪的 verdict 文字附進這一輪的 prompt
-#     裡做到的,避免 token 隨輪數疊代式膨脹,也避免對自己先前的判斷產生錨定效應。
+#   - Coder 跟 Reviewer 都是完全 stateless:每一輪都是全新 session,不 --resume。
+#     這是實測後的結論,不是預設立場:這個 devcontainer 環境下,headless 模式的
+#     --resume 不只偶爾「找不到 session」,連新開的 session 有時候連基本工具
+#     (例如 ExitPlanMode)都不完整,說明連續呼叫之間的狀態延續本身不可信任——
+#     與其一直修補這件事,不如整個繞開它:雙方需要的脈絡,全部由腳本明確組進
+#     每一輪的 prompt 裡,不依賴 CLI 自己記得任何東西。
+#   - Plan 迴圈每一輪(包含 revise 輪)都會重新附上完整的概念計畫,因為不能假設
+#     Coder 記得上一輪看過的內容。同理,revise 輪的 prompt 也會明講「請把完整
+#     計畫直接寫在回覆的純文字內容裡,不需要透過任何工具」,不依賴 ExitPlanMode
+#     這類工具一定會出現。
 #   - plan 迴圈的 revise 輪有防呆:如果 Coder 回傳的新計畫長度明顯比上一輪短很多,
 #     視為疑似「只回摘要、沒吐完整計畫」而直接中止,而不是讓退化默默發生。
 #   - diff 迴圈用 `git add -N .`(intent-to-add)把新增的 untracked 檔案也納入 diff,
-#     擷取完一定會把 index 復原,不留痕跡。
+#     擷取完一定會把 index 復原,不留痕跡。diff 迴圈的 Coder 修正也是無狀態的,
+#     它靠讀取目前的實際檔案內容(它有 Read/Edit 工具)加上每輪重新附上的 diff
+#     文字來掌握現況,不依賴記得自己之前做過什麼。
 #   - 大檔案在送進 claude 前會先做 byte 數檢查,避免觸發 shell 的
 #     "Argument list too long"。
-#   - 實際「實作」(原本流程的步驟 6)刻意不放進這支腳本:計畫核准後,你自己在
-#     terminal 用 `claude --resume $(cat .agent-log/.state/<branch>/coder-session-id)`
-#     接續那個 Coder session、互動著看它實作。這支腳本只自動化「審查來回」的部分。
+#   - 實際「實作」(原本流程的步驟 6)刻意不放進這支腳本:計畫核准後,你自己開一個
+#     全新的互動 session(不是 --resume),把 approved-plan.md 的內容貼給它當起點,
+#     互動著看它實作。這支腳本只自動化「審查來回」的部分。
 #
 # ============================================================
 
@@ -65,11 +68,6 @@ LOG_ROOT=".agent-log"
 MAX_PROMPT_BYTES=800000
 # revise 輪的新計畫長度若低於上一輪的這個比例,視為疑似退化並中止(0.0–1.0)
 PLAN_SHRINK_GUARD=0.6
-
-BRANCH="$(git rev-parse --abbrev-ref HEAD | tr '/' '-')"
-STATE_DIR="${LOG_ROOT}/.state/${BRANCH}"
-CODER_SESSION_FILE="${STATE_DIR}/coder-session-id"
-mkdir -p "${STATE_DIR}"
 
 TS="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="${LOG_ROOT}/${TS}"
@@ -108,17 +106,6 @@ require_success() {
   fi
 }
 
-save_session_id() {
-  local resp="$1" file="$2"
-  local sid
-  sid="$(echo "${resp}" | jq -r '.session_id // empty')"
-  if [[ -n "${sid}" && "${sid}" != "null" ]]; then
-    echo "${sid}" >"${file}"
-  else
-    echo "⚠️ 這次回應沒有取得有效的 session_id,下一輪可能無法正確 --resume。" >&2
-  fi
-}
-
 assert_reasonable_size() {
   local file="$1" label="$2"
   local size
@@ -131,21 +118,11 @@ assert_reasonable_size() {
 }
 
 coder_call() {
-  # coder_call <prompt-file> <permission-mode> [recovery-context-file]
-  # recovery-context-file(可省略):如果 --resume 失敗且是已知的「session 遺失」問題
-  # (Claude Code headless 模式下的已知 bug,在 devcontainer 這類非標準環境更容易觸發),
-  # 就用這份內容重新開一個新 session、手動把進度接回去,而不是讓整支腳本崩潰、
-  # 白費前面幾輪的工。
-  #
-  # 注意:這個錯誤訊息 Claude Code 是印在 stderr,不是塞進 --output-format json 的
-  # .result 欄位裡,所以一定要把 stderr 也捕捉起來一起檢查,只看 stdout 的 JSON 會漏抓。
-  local prompt_file="$1" perm_mode="$2" recovery_file="${3:-}"
+  # coder_call <prompt-file> <permission-mode>
+  # 完全 stateless:每次都是全新 session,不 --resume。需要的脈絡(概念計畫、
+  # 目前進度、Reviewer 意見)全部由呼叫端組進 prompt 內容裡,見檔頭說明。
+  local prompt_file="$1" perm_mode="$2"
   assert_reasonable_size "${prompt_file}" "Coder prompt"
-
-  local resume_args=()
-  if [[ -f "${CODER_SESSION_FILE}" ]]; then
-    resume_args=(--resume "$(cat "${CODER_SESSION_FILE}")")
-  fi
 
   local err_file="${RUN_DIR}/.last-coder-stderr"
   local resp
@@ -153,8 +130,7 @@ coder_call() {
     --model "${CODER_MODEL}" \
     --effort "${CODER_EFFORT}" \
     --permission-mode "${perm_mode}" \
-    --output-format json \
-    "${resume_args[@]}" 2>"${err_file}")"
+    --output-format json 2>"${err_file}")"
   local err_text
   err_text="$(cat "${err_file}" 2>/dev/null || true)"
   rm -f "${err_file}"
@@ -162,44 +138,11 @@ coder_call() {
     echo "${err_text}" >&2
   fi
 
-  local session_lost=0
-  if ((${#resume_args[@]} > 0)); then
-    if echo "${err_text}" | grep -q "No conversation found"; then
-      session_lost=1
-    elif echo "${resp}" | jq -e '.is_error == true and (.result | test("No conversation found"))' >/dev/null 2>&1; then
-      session_lost=1
-    fi
-  fi
-
-  if ((session_lost == 1)); then
-    echo "⚠️ 偵測到已知的 Claude Code --resume 問題(session 遺失),自動開新 session 接續進度。" >&2
-    rm -f "${CODER_SESSION_FILE}"
-    local recovered_prompt="${prompt_file}.recovered"
-    {
-      echo "(注意:因為 Claude Code 已知的 --resume 問題,你先前的 session 遺失了,"
-      echo "這是一個全新的 session。以下先提供你目前的進度作為基準,再接原本的請求。)"
-      echo
-      if [[ -n "${recovery_file}" && -f "${recovery_file}" ]]; then
-        echo "## 目前進度"
-        cat "${recovery_file}"
-        echo
-      fi
-      echo "## 原本的請求"
-      cat "${prompt_file}"
-    } >"${recovered_prompt}"
-
-    resp="$(claude -p "$(cat "${recovered_prompt}")" \
-      --model "${CODER_MODEL}" \
-      --effort "${CODER_EFFORT}" \
-      --permission-mode "${perm_mode}" \
-      --output-format json)"
-  fi
-
   echo "${resp}"
 }
 
 reviewer_call() {
-  # 故意不 --resume。Reviewer 每輪都是全新 session,見檔頭說明。
+  # 完全 stateless。見檔頭說明。
   local prompt_file="$1"
   assert_reasonable_size "${prompt_file}" "Reviewer prompt"
   claude -p "$(cat "${prompt_file}")" \
@@ -256,6 +199,11 @@ run_plan_review_loop() {
     echo "以下是已經敲定的概念計畫。請以 plan mode 產出一份詳細的程式實作計畫(不要修改任何檔案),"
     echo "內容要包含具體的檔案異動範圍、資料流、以及你認為需要特別注意的邊界情境。"
     echo
+    echo "**請把完整的實作計畫直接寫在這則回覆的純文字內容裡,不需要透過任何工具。**"
+    echo "**對於比較關鍵的設計決策,請在計畫裡順手註記簡短理由(為什麼這樣做、"
+    echo "排除了哪些替代方案)——這是全新的 session,理由如果沒有寫進計畫文字本身,"
+    echo "之後就再也看不到了。**"
+    echo
     echo "## 概念計畫"
     cat "${concept_plan_file}"
   } >"${prompt_file}"
@@ -263,7 +211,6 @@ run_plan_review_loop() {
   local resp
   resp="$(coder_call "${prompt_file}" "plan")"
   require_success "${resp}" "Coder(round 0)"
-  save_session_id "${resp}" "${CODER_SESSION_FILE}"
   local plan_text
   plan_text="$(echo "${resp}" | jq -r '.result')"
   log "round-0" "Coder(plan)" "${plan_text}"
@@ -304,35 +251,39 @@ run_plan_review_loop() {
       echo "=== ✅ Reviewer 核准,共 ${round} 輪 ==="
       echo "${plan_text}" >"${RUN_DIR}/approved-plan.md"
       echo "最終計畫已存到 ${RUN_DIR}/approved-plan.md"
-      echo "Coder session id: $(cat "${CODER_SESSION_FILE}")"
       return 0
     fi
 
     echo "=== Round ${round}: Coder 修改計畫中 ==="
     local cprompt="${RUN_DIR}/round-${round}-coder-prompt.txt"
     {
-      echo "Reviewer 對你的實作計畫提出以下意見(JSON 格式)。請逐項評估是否接受、"
-      echo "說明理由,並據此修改你的實作計畫。"
+      echo "以下是概念計畫,以及你上一版的實作計畫,還有 Reviewer 對它提出的意見(JSON 格式)。"
+      echo "請逐項評估是否接受、說明理由,並據此修改你的實作計畫。"
       echo
-      echo "**重要:請重新輸出「完整」的修改後計畫,不要只回覆修改摘要或差異說明——"
-      echo "下一輪 Reviewer 只會看到這次的完整輸出,沒看過你之前說過的內容。**"
+      echo "**重要:請重新輸出「完整」的修改後計畫,直接寫在這則回覆的純文字內容裡,"
+      echo "不需要透過任何工具。不要只回覆修改摘要或差異說明——這是全新的 session,"
+      echo "沒看過你之前說過的內容,只看得到以下提供的資訊。對於關鍵設計決策(不管是"
+      echo "沿用上一版的,還是這次因應意見調整的),請保留或補上簡短理由在計畫文字裡,"
+      echo "不要讓理由只存在於你這輪的思考過程裡卻沒寫進去。**"
       echo
+      echo "## 概念計畫"
+      cat "${concept_plan_file}"
+      echo
+      echo "## 你上一版的實作計畫"
+      echo "${plan_text}"
+      echo
+      echo "## Reviewer 的意見"
       echo "${verdict_json}"
     } >"${cprompt}"
 
-    local plan_snapshot="${RUN_DIR}/round-${round}-plan-snapshot.txt"
-    echo "${plan_text}" >"${plan_snapshot}"
-
     local cresp
-    cresp="$(coder_call "${cprompt}" "plan" "${plan_snapshot}")"
+    cresp="$(coder_call "${cprompt}" "plan")"
     require_success "${cresp}" "Coder(round ${round} revise)"
-    save_session_id "${cresp}" "${CODER_SESSION_FILE}"
     local new_plan_text
     new_plan_text="$(echo "${cresp}" | jq -r '.result')"
 
     local prev_len=${#plan_text}
     local new_len=${#new_plan_text}
-    # 用整數運算比較 new_len / prev_len 是否低於 PLAN_SHRINK_GUARD,避免 bash 不支援浮點數
     local guard_pct
     guard_pct="$(awk -v g="${PLAN_SHRINK_GUARD}" 'BEGIN{printf "%d", g*100}')"
     if ((prev_len > 200)) && ((new_len * 100 < prev_len * guard_pct)); then
@@ -416,16 +367,19 @@ run_diff_review_loop() {
         cat "${concept_plan_file}"
         echo
       fi
+      echo "## 這次實作目前相對於 ${base_ref} 的 diff"
+      cat "${diff_file}"
+      echo
       echo "Reviewer 對這次實作提出以下意見(JSON 格式)。請逐項評估是否接受、"
-      echo "說明理由,並據此直接修改程式碼。"
+      echo "說明理由,並據此直接修改程式碼。這是全新的 session,你需要的脈絡都在"
+      echo "上面提供了,不需要依賴任何先前的對話記憶。"
       echo
       echo "${verdict_json}"
     } >"${cprompt}"
 
     local cresp
-    cresp="$(coder_call "${cprompt}" "bypassPermissions" "${diff_file}")"
+    cresp="$(coder_call "${cprompt}" "bypassPermissions")"
     require_success "${cresp}" "Coder(diff round ${round} fix)"
-    save_session_id "${cresp}" "${CODER_SESSION_FILE}"
     log "round-${round}-diff" "Coder(fix)" "$(echo "${cresp}" | jq -r '.result')"
 
     round=$((round + 1))
@@ -444,12 +398,8 @@ plan)
 diff)
   run_diff_review_loop "${2:?請提供要比較的 base ref,例如: master 或某個 commit hash}" "${3:-}"
   ;;
-reset)
-  rm -rf "${STATE_DIR}"
-  echo "已清除 branch「${BRANCH}」的 Coder session 記錄。"
-  ;;
 *)
-  echo "用法: $0 plan <concept-plan-file> | diff <base-ref> [concept-plan-file] | reset" >&2
+  echo "用法: $0 plan <concept-plan-file> | diff <base-ref> [concept-plan-file]" >&2
   exit 1
   ;;
 esac
