@@ -136,6 +136,9 @@ coder_call() {
   # (Claude Code headless 模式下的已知 bug,在 devcontainer 這類非標準環境更容易觸發),
   # 就用這份內容重新開一個新 session、手動把進度接回去,而不是讓整支腳本崩潰、
   # 白費前面幾輪的工。
+  #
+  # 注意:這個錯誤訊息 Claude Code 是印在 stderr,不是塞進 --output-format json 的
+  # .result 欄位裡,所以一定要把 stderr 也捕捉起來一起檢查,只看 stdout 的 JSON 會漏抓。
   local prompt_file="$1" perm_mode="$2" recovery_file="${3:-}"
   assert_reasonable_size "${prompt_file}" "Coder prompt"
 
@@ -144,16 +147,31 @@ coder_call() {
     resume_args=(--resume "$(cat "${CODER_SESSION_FILE}")")
   fi
 
+  local err_file="${RUN_DIR}/.last-coder-stderr"
   local resp
   resp="$(claude -p "$(cat "${prompt_file}")" \
     --model "${CODER_MODEL}" \
     --effort "${CODER_EFFORT}" \
     --permission-mode "${perm_mode}" \
     --output-format json \
-    "${resume_args[@]}")"
+    "${resume_args[@]}" 2>"${err_file}")"
+  local err_text
+  err_text="$(cat "${err_file}" 2>/dev/null || true)"
+  rm -f "${err_file}"
+  if [[ -n "${err_text}" ]]; then
+    echo "${err_text}" >&2
+  fi
 
-  if ((${#resume_args[@]} > 0)) && \
-     echo "${resp}" | jq -e '.is_error == true and (.result | test("No conversation found"))' >/dev/null 2>&1; then
+  local session_lost=0
+  if ((${#resume_args[@]} > 0)); then
+    if echo "${err_text}" | grep -q "No conversation found"; then
+      session_lost=1
+    elif echo "${resp}" | jq -e '.is_error == true and (.result | test("No conversation found"))' >/dev/null 2>&1; then
+      session_lost=1
+    fi
+  fi
+
+  if ((session_lost == 1)); then
     echo "⚠️ 偵測到已知的 Claude Code --resume 問題(session 遺失),自動開新 session 接續進度。" >&2
     rm -f "${CODER_SESSION_FILE}"
     local recovered_prompt="${prompt_file}.recovered"
