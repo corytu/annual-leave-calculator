@@ -9,8 +9,10 @@ set -euo pipefail
 #   ./agent-loop.sh plan <concept-plan-file>
 #       步驟 3–5:Coder 產出實作計畫 -> Reviewer 審查 -> 迴圈直到核准
 #
-#   ./agent-loop.sh diff <base-ref>
+#   ./agent-loop.sh diff <base-ref> [concept-plan-file]
 #       步驟 7:對 <base-ref> 做 git diff(含新增的 untracked 檔案) -> Reviewer 覆核 -> 迴圈直到核准
+#       concept-plan-file 可省略;若這次沒有先跑過 plan 審查(Reviewer/Coder 都還沒看過
+#       概念計畫),建議帶上,讓兩者這次修正/審查時能對照原始設計決策。
 #
 #   ./agent-loop.sh reset
 #       清除目前 git branch 對應的 Coder session 記錄,下次 plan/diff 會開全新 session。
@@ -337,6 +339,7 @@ run_plan_review_loop() {
 
 run_diff_review_loop() {
   local base_ref="$1"
+  local concept_plan_file="${2:-}"
 
   local prev_verdict_text=""
   local round=1
@@ -356,6 +359,12 @@ run_diff_review_loop() {
     {
       echo "以下是這次實作相對於 ${base_ref} 的 git diff(含新增檔案),請檢查施工品質、"
       echo "是否符合原計畫、有沒有邊界情境或錯誤處理被遺漏。"
+      if [[ -n "${concept_plan_file}" && -f "${concept_plan_file}" ]]; then
+        echo
+        echo "## 概念計畫(原始設計決策,這次沒有先跑 plan 審查,請特別對照文件裡的"
+        echo "已定案設計決定跟「不做的事」清單,檢查 diff 有沒有違反)"
+        cat "${concept_plan_file}"
+      fi
       if [[ -n "${prev_verdict_text}" ]]; then
         echo
         echo "## 你上一輪提出的意見(請檢查這一版是否已經處理)"
@@ -384,6 +393,11 @@ run_diff_review_loop() {
     echo "=== Round ${round}: Coder 修正實作中(會直接改檔案) ==="
     local cprompt="${RUN_DIR}/round-${round}-coder-fix-prompt.txt"
     {
+      if [[ -n "${concept_plan_file}" && -f "${concept_plan_file}" ]]; then
+        echo "## 概念計畫(原始設計決策,你這次修正時要遵守)"
+        cat "${concept_plan_file}"
+        echo
+      fi
       echo "Reviewer 對這次實作提出以下意見(JSON 格式)。請逐項評估是否接受、"
       echo "說明理由,並據此直接修改程式碼。"
       echo
@@ -410,14 +424,14 @@ plan)
   run_plan_review_loop "${2:?請提供概念計畫檔案路徑,例如: docs/plan-concept.md}"
   ;;
 diff)
-  run_diff_review_loop "${2:?請提供要比較的 base ref,例如: master 或某個 commit hash}"
+  run_diff_review_loop "${2:?請提供要比較的 base ref,例如: master 或某個 commit hash}" "${3:-}"
   ;;
 reset)
   rm -rf "${STATE_DIR}"
   echo "已清除 branch「${BRANCH}」的 Coder session 記錄。"
   ;;
 *)
-  echo "用法: $0 plan <concept-plan-file> | diff <base-ref> | reset" >&2
+  echo "用法: $0 plan <concept-plan-file> | diff <base-ref> [concept-plan-file] | reset" >&2
   exit 1
   ;;
 esac
