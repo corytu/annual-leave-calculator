@@ -7,6 +7,9 @@ test-results/
 # Agent loop runtime logs & session state
 .agent-log/
 
+# Claude Code
+.claude/
+
 # Logs
 logs
 *.log
