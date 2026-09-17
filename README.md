@@ -24,15 +24,40 @@
 
 ## 本地端開發
 
-### 環境需求
+### 使用 Dev Container（建議）
+
+最快的方式是使用 VS Code Dev Container，環境會自動安裝好 Node.js、npm 相依套件與 Playwright 瀏覽器。
+
+**前置需求：**
+
+- 已安裝 Docker（Docker Desktop 或相容的容器執行環境）
+- VS Code，並安裝 [Dev Containers 擴充套件](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+
+**使用方式：**
+
+1. 以 VS Code 開啟本專案
+2. 執行指令面板的 `Dev Containers: Reopen in Container`（或依 VS Code 彈出的提示點擊）
+3. 容器建立完成後，會自動執行 `npm ci` 與安裝 Playwright（含 Chromium）。啟動開發伺服器時請加上 `--host`，讓容器對外監聽，VS Code 才能將連接埠轉發到主機：
+
+   ```shell
+   npm run dev -- --host
+   ```
+
+> 此 Dev Container 內建 [Claude Code](https://claude.com/claude-code) CLI 工具，方便搭配 AI 輔助開發（例如下方「開發輔助工具」一節提到的 `agent-loop.sh`）。若要在容器內使用 `claude` 指令，需先在**主機**環境設定 `CLAUDE_CODE_OAUTH_TOKEN` 環境變數，容器會自動帶入；若只是開發計算機本身的功能，則不需要這個變數。
+
+### 手動安裝
+
+不使用 Dev Container 時，可依下列方式手動建置環境：
+
+#### 環境需求
 
 - Node.js 20+
 - npm
 
-### 安裝與啟動
+#### 安裝與啟動
 
 ```shell
-npm install
+npm ci
 npm run dev
 ```
 
@@ -58,7 +83,7 @@ npm run test:e2e      # 端對端測試（Playwright）
 執行 `test:e2e` 前，需先安裝 Playwright 瀏覽器（僅需執行一次）：
 
 ```shell
-npx playwright install
+npx playwright install --with-deps chromium
 ```
 
 ## 部署與 CI
@@ -94,6 +119,10 @@ npx playwright install
 5. 點擊月曆日期或使用表單新增請假記錄
 6. 可透過首頁的期間頁籤切換查看或編輯歷史年資區間的請假記錄
 7. 若離職或更換工作，可於「設定」頁使用「離職重來」功能結清並清空資料（建議先匯出 CSV 備份保存紀錄）
+
+## 開發輔助工具
+
+專案根目錄的 [`agent-loop.sh`](agent-loop.sh) 是這輪開發過程中用來自動化「Coder ⇄ Reviewer」多輪審查流程的輔助腳本，透過 Claude Code CLI 分別呼叫不同角色互相審查實作計畫與程式碼變更。它與特休計算機本身的功能沒有直接關聯，附在此處是為了讓有興趣的開發者檢閱這輪開發的協作方式，詳見 [docs/README-agent-loop.md](docs/README-agent-loop.md)。
 
 ## 授權
 

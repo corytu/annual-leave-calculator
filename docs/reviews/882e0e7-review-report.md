@@ -2,7 +2,7 @@
 
 審視者：Claude Opus 5, with effort High
 審視日期：2026-09-11
-審視版本：commit [882e0e7](https://github.com/corytu/annual-leave-calculator/commit/882e0e7444ed3b96fe9156924aaa09404eb2f8f6)
+審視版本：commit `882e0e7`
 審視範圍：`src/`（App、components、utils）、`e2e/`、`src/**/*.test.js`、`index.html`、`package.json`、`vite.config.js`、`README.md`
 
 ---

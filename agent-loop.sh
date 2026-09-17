@@ -7,10 +7,10 @@ set -euo pipefail
 #
 # 用法:
 #   ./agent-loop.sh plan <concept-plan-file>
-#       步驟 3–5:Coder 產出實作計畫 -> Reviewer 審查 -> 迴圈直到核准
+#       Plan 審查迴圈:Coder 產出實作計畫 -> Reviewer 審查 -> 迴圈直到核准
 #
 #   ./agent-loop.sh diff <base-ref> [approved-plan-file] [concept-plan-file]
-#       步驟 7:對 <base-ref> 做 git diff(含新增的 untracked 檔案) -> Reviewer 覆核 -> 迴圈直到核准
+#       Diff 覆核迴圈:對 <base-ref> 做 git diff(含新增的 untracked 檔案) -> Reviewer 覆核 -> 迴圈直到核准
 #       approved-plan-file、concept-plan-file 都可省略、都可獨立給。
 #       approved-plan-file(plan 迴圈核准的實作計畫)是主要核對依據——diff 該不該通過,
 #       主要看有沒有照這份做,因為它是比概念計畫更精確、已經來回討論定案的執行契約。
@@ -47,7 +47,7 @@ set -euo pipefail
 #     硬限制(MAX_ARG_STRLEN,常見 128KB)——這個限制遠低於一般人以為的 ARG_MAX 總量
 #     上限(~2MB),這份審查資料很容易就超過,一旦超過會直接讓 claude 執行失敗、丟出
 #     "Argument list too long",不是能靠腳本內部的檢查攔下來的軟性錯誤。
-#   - 實際「實作」(原本流程的步驟 6)刻意不放進這支腳本:計畫核准後,你自己開一個
+#   - 實際「實作」刻意不放進這支腳本:計畫核准後,你自己開一個
 #     全新的互動 session(不是 --resume),把 approved-plan.md 的內容貼給它當起點,
 #     互動著看它實作。這支腳本只自動化「審查來回」的部分。
 #
@@ -222,7 +222,7 @@ capture_diff_including_untracked() {
   return 0
 }
 
-### ---- 步驟 3–5:Plan 審查迴圈 ----
+### ---- Plan 審查迴圈 ----
 
 run_plan_review_loop() {
   local concept_plan_file="$1"
@@ -342,7 +342,7 @@ run_plan_review_loop() {
   return 1
 }
 
-### ---- 步驟 7:Diff 覆核迴圈 ----
+### ---- Diff 覆核迴圈 ----
 
 run_diff_review_loop() {
   local base_ref="$1"
