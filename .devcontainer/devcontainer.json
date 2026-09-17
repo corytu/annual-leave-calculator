@@ -17,13 +17,13 @@
 	"containerEnv": {
 		"CLAUDE_CONFIG_DIR": "/home/node/.claude",
 		"CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
-	}
+	},
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	// "postCreateCommand": "yarn install",
+	"postCreateCommand": "sudo chown -R node:node /home/node/.claude"
 
 	// Configure tool-specific properties.
 	// "customizations": {},
