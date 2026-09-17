@@ -9,10 +9,15 @@ set -euo pipefail
 #   ./agent-loop.sh plan <concept-plan-file>
 #       步驟 3–5:Coder 產出實作計畫 -> Reviewer 審查 -> 迴圈直到核准
 #
-#   ./agent-loop.sh diff <base-ref> [concept-plan-file]
+#   ./agent-loop.sh diff <base-ref> [approved-plan-file] [concept-plan-file]
 #       步驟 7:對 <base-ref> 做 git diff(含新增的 untracked 檔案) -> Reviewer 覆核 -> 迴圈直到核准
-#       concept-plan-file 可省略;若這次沒有先跑過 plan 審查(Reviewer/Coder 都還沒看過
-#       概念計畫),建議帶上,讓兩者這次修正/審查時能對照原始設計決策。
+#       approved-plan-file、concept-plan-file 都可省略、都可獨立給。
+#       approved-plan-file(plan 迴圈核准的實作計畫)是主要核對依據——diff 該不該通過,
+#       主要看有沒有照這份做,因為它是比概念計畫更精確、已經來回討論定案的執行契約。
+#       concept-plan-file(最初的概念計畫)是安全網,不是主要核對依據:用來檢查 diff
+#       或 approved plan 本身有沒有偷偷偏離原始設計決策/「不做的事」清單——避免
+#       Coder/Reviewer 在 plan 迴圈裡剛好一起誤解了同一個地方,diff 覆核卻因為只看
+#       approved plan 而檢查不出來。
 #
 # 前置需求:
 #   - bash 4.4+、jq、git、claude CLI(已用訂閱 OAuth token 完成認證)
@@ -308,7 +313,8 @@ run_plan_review_loop() {
 
 run_diff_review_loop() {
   local base_ref="$1"
-  local concept_plan_file="${2:-}"
+  local approved_plan_file="${2:-}"
+  local concept_plan_file="${3:-}"
 
   local prev_verdict_text=""
   local round=1
@@ -327,11 +333,17 @@ run_diff_review_loop() {
     local rprompt="${RUN_DIR}/round-${round}-reviewer-diff-prompt.txt"
     {
       echo "以下是這次實作相對於 ${base_ref} 的 git diff(含新增檔案),請檢查施工品質、"
-      echo "是否符合原計畫、有沒有邊界情境或錯誤處理被遺漏。"
+      echo "是否符合計畫、有沒有邊界情境或錯誤處理被遺漏。"
+      if [[ -n "${approved_plan_file}" && -f "${approved_plan_file}" ]]; then
+        echo
+        echo "## 已核准的實作計畫(主要核對依據:diff 該不該通過,主要看有沒有照這份做)"
+        cat "${approved_plan_file}"
+      fi
       if [[ -n "${concept_plan_file}" && -f "${concept_plan_file}" ]]; then
         echo
-        echo "## 概念計畫(原始設計決策,這次沒有先跑 plan 審查,請特別對照文件裡的"
-        echo "已定案設計決定跟「不做的事」清單,檢查 diff 有沒有違反)"
+        echo "## 概念計畫(安全網,不是主要核對依據:如果發現 diff 或上面的實作計畫本身"
+        echo "跟這份文件的設計決策/「不做的事」清單有出入,這件事本身要當成一個 issue"
+        echo "提出來,不要因為實作計畫這樣寫就假設一定是對的)"
         cat "${concept_plan_file}"
       fi
       if [[ -n "${prev_verdict_text}" ]]; then
@@ -362,8 +374,13 @@ run_diff_review_loop() {
     echo "=== Round ${round}: Coder 修正實作中(會直接改檔案) ==="
     local cprompt="${RUN_DIR}/round-${round}-coder-fix-prompt.txt"
     {
+      if [[ -n "${approved_plan_file}" && -f "${approved_plan_file}" ]]; then
+        echo "## 已核准的實作計畫(你這次修正時的主要依據)"
+        cat "${approved_plan_file}"
+        echo
+      fi
       if [[ -n "${concept_plan_file}" && -f "${concept_plan_file}" ]]; then
-        echo "## 概念計畫(原始設計決策,你這次修正時要遵守)"
+        echo "## 概念計畫(原始設計決策,修正時不要違反)"
         cat "${concept_plan_file}"
         echo
       fi
@@ -396,10 +413,10 @@ plan)
   run_plan_review_loop "${2:?請提供概念計畫檔案路徑,例如: docs/plan-concept.md}"
   ;;
 diff)
-  run_diff_review_loop "${2:?請提供要比較的 base ref,例如: master 或某個 commit hash}" "${3:-}"
+  run_diff_review_loop "${2:?請提供要比較的 base ref,例如: master 或某個 commit hash}" "${3:-}" "${4:-}"
   ;;
 *)
-  echo "用法: $0 plan <concept-plan-file> | diff <base-ref> [concept-plan-file]" >&2
+  echo "用法: $0 plan <concept-plan-file> | diff <base-ref> [approved-plan-file] [concept-plan-file]" >&2
   exit 1
   ;;
 esac
