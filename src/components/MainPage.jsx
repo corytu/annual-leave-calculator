@@ -175,6 +175,9 @@ export default function MainPage({
         <div className="px-5 py-3 border-b border-stone-100 bg-stone-50">
           <h2 className="text-sm font-semibold text-stone-700">月曆</h2>
           <p className="text-xs text-stone-400 mt-0.5">點擊日期快速新增請假記錄</p>
+          <p data-testid="calendar-holiday-note" className="text-xs text-stone-400">
+            圓點只跳過週六日，未考慮國定假日與補班日
+          </p>
         </div>
         <div className="p-4">
           <LeaveCalendar
