@@ -155,6 +155,17 @@ test.describe('離職重來', () => {
     await expect(page.getByText('應結清工資天數：0 天')).toBeVisible()
   })
 
+  test('自訂規則為空的舊資料：首頁提示改用離職重來', async ({ page }) => {
+    await seedAppStorage(page, {
+      settings: { onboardDate: '2023-06-15', ruleType: 'custom', customRules: [], allowCarryover: false },
+      records: [],
+    })
+    await page.goto('/')
+
+    await expect(page.getByText('離職重來')).toBeVisible()
+    await expect(page.getByTestId('period-tabs')).toHaveCount(0)
+  })
+
   test('匯出 CSV 備份會觸發下載，且不關閉彈窗、不影響後續清空流程', async ({ page }) => {
     await seedAppStorage(page, { settings: SETTLEMENT_SETTINGS, records: SETTLEMENT_RECORDS })
     await page.goto('/')

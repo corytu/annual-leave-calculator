@@ -419,6 +419,17 @@ export function calculateSummary(settings, records, today = new Date()) {
     return { hasLeave: false, message: '請先在設定中填寫到職日。', periods: [] };
   }
 
+  // Settings saved before #21 was fixed can hold a custom rule set with no
+  // usable thresholds. The settings page is locked by then, so explain the
+  // only way out instead of showing a frozen 0-day period.
+  if (ruleType === 'custom' && normalizeCustomThresholds(customRules).length === 0) {
+    return {
+      hasLeave: false,
+      message: '自訂規則沒有任何有效的年資門檻，無法計算特休。請至設定頁使用「離職重來」重新設定。',
+      periods: [],
+    };
+  }
+
   const onboard = parseLocalDate(onboardDate);
   const ledger = computePeriodLedger(onboard, ruleType, customRules, records, today, allowCarryover);
 

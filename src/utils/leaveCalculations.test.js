@@ -535,6 +535,27 @@ describe('calculateSummary', () => {
     }
   })
 
+  it('reports hasLeave: false with a reset hint when custom rules have no valid thresholds', () => {
+    const settings = { onboardDate: '2023-06-15', ruleType: 'custom', customRules: [], allowCarryover: false }
+    const result = calculateSummary(settings, [], today)
+    expect(result.hasLeave).toBe(false)
+    expect(result.message).toContain('離職重來')
+    expect(result.periods).toEqual([])
+  })
+
+  it('treats custom rules whose thresholds are all invalid the same as an empty rule set', () => {
+    const settings = {
+      onboardDate: '2023-06-15',
+      ruleType: 'custom',
+      customRules: [{ months: 0, days: 5 }, { months: -1, days: 5 }],
+      allowCarryover: false,
+    }
+    const result = calculateSummary(settings, [], today)
+    expect(result.hasLeave).toBe(false)
+    expect(result.message).toContain('離職重來')
+    expect(result.periods).toEqual([])
+  })
+
   it('starts a new 12-month period every year under the default custom thresholds', () => {
     const settings = { onboardDate: '2020-01-01', ruleType: 'custom', customRules: DEFAULT_CUSTOM_RULE_SET, allowCarryover: false }
     const result = calculateSummary(settings, [], d('2024-01-01'))
