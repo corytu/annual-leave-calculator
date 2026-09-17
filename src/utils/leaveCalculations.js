@@ -114,6 +114,26 @@ function buildLaborLawMilestones(upToMonths) {
 
 // ─── Rules resolution ────────────────────────────────────────────────────────
 
+// Sanity ceiling for any month-threshold value. Bounds the gap-fill loop
+// below (a huge gap between two thresholds would otherwise iterate millions
+// of times) and is reused by checkLaborLawCompliance's horizon clamp (#20).
+const MAX_MILESTONE_MONTHS = 1200; // 100 years
+
+/**
+ * Clean user-entered thresholds into sorted, de-duplicated positive integers
+ * within a sane range.
+ * Duplicates must be removed here: getPeriodInfo() looks up the next
+ * milestone by position, so a repeated value would make a period end
+ * before it starts (#20).
+ */
+function normalizeCustomThresholds(customRules) {
+  return [...new Set(
+    (customRules ?? [])
+      .map(r => Number(r?.months))
+      .filter(m => Number.isInteger(m) && m >= 1 && m <= MAX_MILESTONE_MONTHS)
+  )].sort((a, b) => a - b);
+}
+
 /**
  * Compute entitled days for the period starting at `milestoneMonths` given
  * the user's settings.
@@ -142,25 +162,36 @@ export function getDaysForMilestone(milestoneMonths, ruleType, customRules) {
 /**
  * Return the sorted list of milestone-month values relevant to the given
  * settings, extended to cover at least `upToMonths`.
+ *
+ * For custom rules, thresholds are first de-duplicated and clamped to
+ * [1, MAX_MILESTONE_MONTHS]. Between any two consecutive thresholds, a new
+ * period is cut every 12 months counting forward from the earlier one, so no
+ * custom period ever exceeds a year. Any sub-year remainder therefore sits
+ * just before the next threshold, and that remainder still gets the full-year
+ * entitlement of the threshold it falls under -- it is not prorated.
  */
 export function getMilestones(ruleType, customRules, upToMonths = 360) {
-  if (ruleType === 'custom') {
-    const base = [...customRules]
-      .map(r => r.months)
-      .sort((a, b) => a - b);
+  if (ruleType !== 'custom') return buildLaborLawMilestones(upToMonths);
 
-    if (base.length === 0) return [6]; // fallback
+  const thresholds = normalizeCustomThresholds(customRules);
+  if (thresholds.length === 0) return [6]; // fallback
 
-    // Extend with annual repeats of the last interval
-    let last = base[base.length - 1];
-    let m = last + 12;
-    while (m <= upToMonths + 12) {
-      base.push(m);
-      m += 12;
+  const milestones = [];
+  thresholds.forEach((current, i) => {
+    const next = thresholds[i + 1];
+    if (next === undefined) {
+      milestones.push(current);
+      for (let m = current + 12; m <= upToMonths + 12; m += 12) milestones.push(m);
+    } else {
+      // Cut a new period every 12 months counting forward from this
+      // threshold, so no period between two thresholds exceeds a year (#19).
+      // Any sub-year remainder therefore sits just before `next`, and that
+      // remainder still gets the full-year entitlement of `current` (not
+      // prorated) -- this is intentional, see the design doc (D1).
+      for (let m = current; m < next; m += 12) milestones.push(m);
     }
-    return base;
-  }
-  return buildLaborLawMilestones(upToMonths);
+  });
+  return milestones;
 }
 
 // ─── Period helpers ───────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime } from './helpers.js'
+import { freezeTime, seedAppStorage } from './helpers.js'
 
 test.describe('首次使用與設定流程', () => {
   test.beforeEach(async ({ page }) => {
@@ -124,5 +124,54 @@ test.describe('特休規則設定', () => {
     await page.getByRole('button', { name: '儲存設定' }).click()
 
     await expect(page.getByTestId('summary-entitled')).toContainText('20')
+  })
+
+  test('公司另有規定使用預設門檻時，滿 4 年後仍是 12 個月一期', async ({ page }) => {
+    // Driven through the UI rather than seeded: the default thresholds are
+    // defined in Settings.jsx (DEFAULT_CUSTOM_RULES), so seeding them here
+    // would just be a copy that silently drifts if that default ever changes.
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Onboard date 2021-06-15, frozen "today" 2025-06-15 -> exactly 48
+    // completed months -> milestone 48 (14 days, gap-filled from the 36-month
+    // rule), period 2025-06-15 ~ 2026-06-14 (12 months, not the pre-fix
+    // 2024-06-15 ~ 2026-06-14 span across milestone 36).
+    await page.locator('input[type="date"]').fill('2021-06-15')
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    await expect(page.getByTestId('period-range')).toContainText('2025-06-15')
+    await expect(page.getByTestId('period-range')).toContainText('2026-06-14')
+    await expect(page.getByTestId('summary-entitled')).toContainText('14')
+    await expect(page.getByTestId('period-tabs').getByRole('button')).toHaveCount(5)
+    await expect(page.getByTestId('period-tabs').getByRole('button').first()).toHaveText('2025–26')
+  })
+})
+
+// A separate top-level describe on purpose: '特休規則設定' navigates
+// straight to the settings page in its beforeEach with no seeded settings
+// (that describe's own comment says so), so seedAppStorage() called inside
+// one of its tests would run too late for page.addInitScript() to take
+// effect, and the page wouldn't even be on '/' to read summary-* from.
+// This test needs its own explicit freeze -> seed -> navigate order instead.
+test.describe('既有資料相容性（#19 切點重新分配）', () => {
+  test('既有請假記錄因切點重新分配而超支時，首頁仍正常顯示且不拋錯', async ({ page }) => {
+    await freezeTime(page, '2022-03-01T03:00:00')
+    await seedAppStorage(page, {
+      settings: {
+        onboardDate: '2020-01-01',
+        ruleType: 'custom',
+        customRules: [
+          { id: 'c1', months: 6, days: 3 },
+          { id: 'c2', months: 12, days: 7 },
+          { id: 'c3', months: 30, days: 14 },
+        ],
+        allowCarryover: false,
+      },
+      records: [{ id: 'r1', startDate: '2022-02-01', days: 10 }],
+    })
+    await page.goto('/')
+
+    await expect(page.getByTestId('summary-entitled')).toBeVisible()
+    await expect(page.getByTestId('summary-remaining')).toContainText('-3')
   })
 })

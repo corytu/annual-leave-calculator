@@ -133,6 +133,61 @@ describe('getMilestones (labor law extension covers upToMonths)', () => {
   })
 })
 
+// Mirrors Settings.jsx's DEFAULT_CUSTOM_RULES thresholds/days exactly, so tests
+// that rely on "the default custom rule set" stay in sync with the UI default.
+const DEFAULT_CUSTOM_RULE_SET = [
+  { months: 6,   days: 3  },
+  { months: 12,  days: 7  },
+  { months: 24,  days: 10 },
+  { months: 36,  days: 14 },
+  { months: 60,  days: 15 },
+  { months: 120, days: 16 },
+]
+
+describe('getMilestones (custom rules yearly grid)', () => {
+  it('produces the same milestones as labor law for the default custom thresholds', () => {
+    const customMilestones = getMilestones('custom', DEFAULT_CUSTOM_RULE_SET, 200)
+    const laborMilestones = getMilestones('labor', [], 200)
+    expect(customMilestones).toEqual(laborMilestones)
+  })
+
+  it('fills yearly cut points forward from each threshold, leaving any short remainder just before the next threshold', () => {
+    const custom = [{ months: 6, days: 3 }, { months: 12, days: 7 }, { months: 30, days: 14 }]
+    const milestones = getMilestones('custom', custom, 50)
+    expect(milestones.slice(0, 5)).toEqual([6, 12, 24, 30, 42])
+  })
+
+  it('never produces a gap longer than 12 months between consecutive milestones', () => {
+    const custom = [{ months: 3, days: 1 }, { months: 17, days: 5 }, { months: 45, days: 10 }]
+    const milestones = getMilestones('custom', custom, 100)
+    for (let i = 1; i < milestones.length; i++) {
+      expect(milestones[i] - milestones[i - 1]).toBeLessThanOrEqual(12)
+    }
+  })
+
+  it('deduplicates repeated thresholds', () => {
+    const withDupe = [{ months: 12, days: 5 }, { months: 12, days: 7 }, { months: 24, days: 10 }]
+    const withoutDupe = [{ months: 12, days: 5 }, { months: 24, days: 10 }]
+    expect(getMilestones('custom', withDupe, 30)).toEqual(getMilestones('custom', withoutDupe, 30))
+  })
+
+  it('ignores thresholds that are not positive integers', () => {
+    const messy = [
+      { months: 0, days: 1 },
+      { months: -5, days: 1 },
+      { months: 1.5, days: 1 },
+      { months: 'abc', days: 1 },
+      { months: 12, days: 5 },
+    ]
+    expect(getMilestones('custom', messy, 30)).toEqual(getMilestones('custom', [{ months: 12, days: 5 }], 30))
+  })
+
+  it('ignores thresholds beyond the sanity ceiling and does not hang on a huge gap', () => {
+    const huge = [{ months: 12, days: 5 }, { months: 999999999, days: 30 }]
+    expect(getMilestones('custom', huge, 30)).toEqual(getMilestones('custom', [{ months: 12, days: 5 }], 30))
+  })
+})
+
 describe('getDaysForMilestone', () => {
   it('delegates to labor law days for ruleType "labor"', () => {
     expect(getDaysForMilestone(24, 'labor', [])).toBe(getLaborLawDays(24))
@@ -155,6 +210,11 @@ describe('getDaysForMilestone', () => {
   it('returns 0 for custom rules below the lowest threshold', () => {
     expect(getDaysForMilestone(3, 'custom', custom)).toBe(0)
   })
+
+  it('gives a gap-filled milestone the days of the highest threshold at or below it', () => {
+    expect(getDaysForMilestone(48, 'custom', DEFAULT_CUSTOM_RULE_SET)).toBe(14)
+    expect(getDaysForMilestone(72, 'custom', DEFAULT_CUSTOM_RULE_SET)).toBe(15)
+  })
 })
 
 describe('getPeriodInfo', () => {
@@ -170,6 +230,28 @@ describe('getPeriodInfo', () => {
     // 132 is the last known milestone before the +12 extension kicks in during this call
     const info = getPeriodInfo(d('2020-01-01'), 132, 'labor', [])
     expect(info.nextMilestoneMonths).toBe(144)
+  })
+
+  it('spans exactly 12 months at milestone 36 under the default custom thresholds', () => {
+    const info = getPeriodInfo(d('2020-01-01'), 36, 'custom', DEFAULT_CUSTOM_RULE_SET)
+    expect(toISODateString(info.periodStart)).toBe('2023-01-01')
+    expect(info.nextMilestoneMonths).toBe(48)
+    expect(toISODateString(info.periodEnd)).toBe('2023-12-31')
+    expect(info.entitledDays).toBe(14)
+  })
+
+  it('never ends before it starts when custom thresholds are duplicated', () => {
+    const custom = [{ months: 6, days: 1 }, { months: 6, days: 2 }, { months: 12, days: 3 }]
+    const info = getPeriodInfo(d('2020-01-01'), 6, 'custom', custom)
+    expect(info.periodEnd.getTime()).toBeGreaterThanOrEqual(info.periodStart.getTime())
+  })
+
+  it("keeps a short remainder period's days at the threshold it falls under, without proration", () => {
+    const custom = [{ months: 6, days: 3 }, { months: 12, days: 7 }, { months: 30, days: 14 }]
+    const info = getPeriodInfo(d('2020-01-01'), 24, 'custom', custom)
+    expect(toISODateString(info.periodStart)).toBe('2022-01-01')
+    expect(toISODateString(info.periodEnd)).toBe('2022-06-30')
+    expect(info.entitledDays).toBe(7)
   })
 })
 
@@ -451,6 +533,37 @@ describe('calculateSummary', () => {
     for (let i = 1; i < result.periods.length; i++) {
       expect(result.periods[i].periodStart.getTime()).toBeGreaterThan(result.periods[i - 1].periodStart.getTime())
     }
+  })
+
+  it('starts a new 12-month period every year under the default custom thresholds', () => {
+    const settings = { onboardDate: '2020-01-01', ruleType: 'custom', customRules: DEFAULT_CUSTOM_RULE_SET, allowCarryover: false }
+    const result = calculateSummary(settings, [], d('2024-01-01'))
+    expect(result.hasLeave).toBe(true)
+    expect(result.periods).toHaveLength(5)
+    const current = result.periods[result.periods.length - 1]
+    expect(current.milestoneMonths).toBe(48)
+    expect(toISODateString(current.periodStart)).toBe('2024-01-01')
+    expect(toISODateString(current.periodEnd)).toBe('2024-12-31')
+    expect(current.entitledDays).toBe(14)
+  })
+
+  // Simulates existing localStorage data saved before #19 was fixed with a
+  // looser period-boundary rule: after the fix, this record gets re-gridded
+  // into a shorter period and now looks overspent (D17). This test only
+  // guards against a crash / hasLeave flip, not against the overspend itself.
+  it('does not throw and reports negative remaining when re-gridded periods make a previously-valid record look overspent (#19)', () => {
+    const today = d('2022-03-01')
+    const settings = {
+      onboardDate: '2020-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 6, days: 3 }, { months: 12, days: 7 }, { months: 30, days: 14 }],
+      allowCarryover: false,
+    }
+    const records = [{ startDate: '2022-02-01', days: 10 }]
+    const result = calculateSummary(settings, records, today)
+    expect(result.hasLeave).toBe(true)
+    const current = result.periods.find(p => p.milestoneMonths === 24)
+    expect(current.remaining).toBe(-3)
   })
 })
 

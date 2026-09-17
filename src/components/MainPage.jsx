@@ -142,7 +142,7 @@ export default function MainPage({
       )}
 
       {/* ── Period info bar ─────────────────────────────────────────────── */}
-      <div className="text-xs text-stone-400 text-center">
+      <div data-testid="period-range" className="text-xs text-stone-400 text-center">
         本年度週年制區間：
         <span className="text-stone-600 font-medium">
           {toISODateString(activePeriod.periodStart)}
