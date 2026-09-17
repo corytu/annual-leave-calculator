@@ -93,6 +93,10 @@ export default function MainPage({
   }
 
   function handleSelectPeriod(milestoneMonths) {
+    // Re-selecting the current tab must be a no-op. Clearing editingRecord
+    // here without remounting LeaveForm would leave the old values in an
+    // "add" form, and submitting it would duplicate the record.
+    if (milestoneMonths === activePeriod.milestoneMonths) return
     setSelectedMilestone(milestoneMonths)
     setEditingRecord(null)
     setSelectedDate(null)
@@ -174,6 +178,9 @@ export default function MainPage({
         </div>
         <div className="p-4">
           <LeaveCalendar
+            // react-calendar only reads defaultActiveStartDate at mount, so a
+            // period switch needs a fresh instance to reset which month it shows.
+            key={activePeriod.milestoneMonths}
             periodStart={activePeriod.periodStart}
             periodEnd={activePeriod.periodEnd}
             records={activePeriodRecords}
@@ -190,6 +197,7 @@ export default function MainPage({
         </div>
         <div className="p-4">
           <LeaveForm
+            key={activePeriod.milestoneMonths}
             settings={settings}
             periodStart={activePeriod.periodStart}
             periodEnd={activePeriod.periodEnd}
