@@ -66,6 +66,7 @@ describe('buildBackupCsv', () => {
         { id: 'b', months: 12, days: 10 },
       ],
       allowCarryover: false,
+      customGrowth: { perYear: 0, cap: 0 },
     }
     const summary = { hasLeave: true, periods: [{ remaining: 0 }] }
 
@@ -78,6 +79,7 @@ describe('buildBackupCsv', () => {
       '允許遞延,否',
       '6,3',
       '12,10',
+      '之後每年加,0',
       '',
       '請假記錄',
       '開始日期,天數',
@@ -85,6 +87,50 @@ describe('buildBackupCsv', () => {
       '離職結清',
       '應結清工資天數,0',
     ])
+  })
+
+  it('also lists the cap when customGrowth.perYear is greater than 0', () => {
+    const settings = {
+      onboardDate: '2023-06-15',
+      ruleType: 'custom',
+      customRules: [{ id: 'a', months: 6, days: 3 }],
+      allowCarryover: false,
+      customGrowth: { perYear: 1, cap: 30 },
+    }
+    const summary = { hasLeave: true, periods: [{ remaining: 0 }] }
+
+    const csv = buildBackupCsv(settings, [], summary)
+    const lines = csv.split('\n')
+
+    expect(lines).toEqual([
+      '到職日,2023-06-15',
+      '特休規則,公司自訂',
+      '允許遞延,否',
+      '6,3',
+      '之後每年加,1',
+      '天數上限,30',
+      '',
+      '請假記錄',
+      '開始日期,天數',
+      '',
+      '離職結清',
+      '應結清工資天數,0',
+    ])
+  })
+
+  it('defaults to no-growth when customGrowth is missing from settings (pre-#35 data)', () => {
+    const settings = {
+      onboardDate: '2023-06-15',
+      ruleType: 'custom',
+      customRules: [{ id: 'a', months: 6, days: 3 }],
+      allowCarryover: false,
+    }
+    const summary = { hasLeave: true, periods: [{ remaining: 0 }] }
+
+    const csv = buildBackupCsv(settings, [], summary)
+
+    expect(csv).toContain('之後每年加,0')
+    expect(csv).not.toContain('天數上限')
   })
 })
 

@@ -16,6 +16,7 @@ import {
   calculateSummary,
   formatPeriodLabel,
   checkLaborLawCompliance,
+  NO_CUSTOM_GROWTH,
 } from './leaveCalculations.js'
 
 // Small helper so test cases read like dates, not Date(y, m-1, d) noise.
@@ -215,6 +216,46 @@ describe('getDaysForMilestone', () => {
     expect(getDaysForMilestone(48, 'custom', DEFAULT_CUSTOM_RULE_SET)).toBe(14)
     expect(getDaysForMilestone(72, 'custom', DEFAULT_CUSTOM_RULE_SET)).toBe(15)
   })
+
+  describe('customGrowth', () => {
+    it('applies no growth by default (NO_CUSTOM_GROWTH), even past the last threshold', () => {
+      expect(getDaysForMilestone(240, 'custom', DEFAULT_CUSTOM_RULE_SET)).toBe(16)
+      expect(getDaysForMilestone(240, 'custom', DEFAULT_CUSTOM_RULE_SET, NO_CUSTOM_GROWTH)).toBe(16)
+    })
+
+    it('adds perYear days for each full year past the last threshold', () => {
+      const growth = { perYear: 1, cap: 30 }
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(17)
+      expect(getDaysForMilestone(144, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(18)
+    })
+
+    it('does not apply growth exactly at the last threshold, only past it', () => {
+      const growth = { perYear: 1, cap: 30 }
+      expect(getDaysForMilestone(120, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(16)
+    })
+
+    it('caps growth at the configured cap', () => {
+      const growth = { perYear: 5, cap: 20 }
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(20)
+    })
+
+    it('never lets a misconfigured cap shrink days below the last threshold', () => {
+      const growth = { perYear: 1, cap: 10 } // cap (10) is below the last threshold's days (16)
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(16)
+    })
+
+    it('coerces a null or malformed customGrowth into no growth instead of throwing', () => {
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, null)).toBe(16)
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, { perYear: 'abc', cap: 'xyz' })).toBe(16)
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, { perYear: -5, cap: -5 })).toBe(16)
+    })
+
+    it('coerces a string days value in customRules into a number for growth math', () => {
+      const custom = [{ months: 12, days: '7' }]
+      const growth = { perYear: 1, cap: 20 }
+      expect(getDaysForMilestone(24, 'custom', custom, growth)).toBe(8) // not '7' + 1 = '71'
+    })
+  })
 })
 
 describe('getPeriodInfo', () => {
@@ -252,6 +293,11 @@ describe('getPeriodInfo', () => {
     expect(toISODateString(info.periodStart)).toBe('2022-01-01')
     expect(toISODateString(info.periodEnd)).toBe('2022-06-30')
     expect(info.entitledDays).toBe(7)
+  })
+
+  it('applies customGrowth to entitledDays past the last custom threshold', () => {
+    const info = getPeriodInfo(d('2020-01-01'), 132, 'custom', DEFAULT_CUSTOM_RULE_SET, { perYear: 1, cap: 30 })
+    expect(info.entitledDays).toBe(17)
   })
 })
 
@@ -427,6 +473,35 @@ describe('validateRecordsChain', () => {
       expect(validateRecordsChain(settings, recordsAfterDelete, asOfDate).valid).toBe(true)
     })
   })
+
+  describe('customGrowth affecting the next-period overspend threshold', () => {
+    // Only threshold is 12mo (5 days); milestone 24 is a gap-filled repeat of
+    // it. onboard 2020-01-01 -> milestone 12's period is 2021-01-01~2021-12-31
+    // (the very first period in the chain, so carryIn is always 0 here).
+    const baseSettings = {
+      onboardDate: '2020-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 12, days: 5 }],
+      allowCarryover: true,
+    }
+    const records = [{ startDate: '2021-06-01', days: 12 }]
+    const asOfDate = d('2021-06-15') // still within milestone 12's period
+
+    it('accepts an overspend that only fits within the next period\'s grown entitlement', () => {
+      // availableTotal = 0 + 5 - 12 = -7. Next period (milestone 24) grows to
+      // 5 + 2*floor((24-12)/12) = 5 + 2 = 7 days, so the threshold is -7 --
+      // -7 is exactly at the boundary (allowed).
+      const settings = { ...baseSettings, customGrowth: { perYear: 2, cap: 20 } }
+      expect(validateRecordsChain(settings, records, asOfDate).valid).toBe(true)
+    })
+
+    it('rejects the same overspend when customGrowth is absent (ungrown next-period entitlement)', () => {
+      // Same -7 availableTotal, but the next period's entitlement stays at
+      // the base 5 days with no growth -> threshold -5, and -7 < -5.
+      const settings = { ...baseSettings, customGrowth: { perYear: 0, cap: 0 } }
+      expect(validateRecordsChain(settings, records, asOfDate).valid).toBe(false)
+    })
+  })
 })
 
 describe('calculateSummary', () => {
@@ -566,6 +641,34 @@ describe('calculateSummary', () => {
     expect(toISODateString(current.periodStart)).toBe('2024-01-01')
     expect(toISODateString(current.periodEnd)).toBe('2024-12-31')
     expect(current.entitledDays).toBe(14)
+  })
+
+  it('applies customGrowth entitlement growth to the current period', () => {
+    const settings = {
+      onboardDate: '2010-01-01',
+      ruleType: 'custom',
+      customRules: DEFAULT_CUSTOM_RULE_SET,
+      customGrowth: { perYear: 1, cap: 30 },
+      allowCarryover: false,
+    }
+    // 2010-01-01 -> 2021-01-01 is exactly 132 completed months (11 years).
+    const result = calculateSummary(settings, [], d('2021-01-01'))
+    const current = result.periods[result.periods.length - 1]
+    expect(current.milestoneMonths).toBe(132)
+    expect(current.entitledDays).toBe(17)
+  })
+
+  it('ignores customGrowth entirely for ruleType "labor", even if present in settings', () => {
+    const settings = {
+      onboardDate: '2010-01-01',
+      ruleType: 'labor',
+      customRules: [],
+      customGrowth: { perYear: 100, cap: 9999 },
+      allowCarryover: false,
+    }
+    const result = calculateSummary(settings, [], today)
+    const current = result.periods[result.periods.length - 1]
+    expect(current.entitledDays).toBe(getLaborLawDays(current.milestoneMonths))
   })
 
   // Simulates existing localStorage data saved before #19 was fixed with a
