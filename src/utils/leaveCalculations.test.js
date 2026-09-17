@@ -234,6 +234,14 @@ describe('getDaysForMilestone', () => {
       expect(getDaysForMilestone(120, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(16)
     })
 
+    it('does not apply growth for a milestone between two earlier thresholds, even past the nearest one', () => {
+      // Milestone 48 sits between the 36mo (14 days) and 60mo (15 days)
+      // thresholds -- growth must not kick in just because 48 > 36; only
+      // milestones past the *last* threshold (120) are eligible.
+      const growth = { perYear: 1, cap: 30 }
+      expect(getDaysForMilestone(48, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(14)
+    })
+
     it('caps growth at the configured cap', () => {
       const growth = { perYear: 5, cap: 20 }
       expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(20)

@@ -13,6 +13,7 @@ const LOCKED_SETTINGS = {
     { id: 'c2', months: 24, days: 14 },
   ],
   allowCarryover: true,
+  customGrowth: { perYear: 1, cap: 30 },
 }
 
 // onboard 2024-06-15 + frozen "today" 2025-06-15 -> exactly 12 completed
@@ -80,6 +81,8 @@ test.describe('離職重來', () => {
     for (const btn of await deleteButtons.all()) {
       await expect(btn).toBeDisabled()
     }
+    await expect(page.getByLabel('每年增加天數')).toBeDisabled()
+    await expect(page.getByLabel('天數上限')).toBeDisabled()
     await expect(page.getByRole('switch')).toBeDisabled()
     await expect(page.getByRole('button', { name: '儲存設定' })).not.toBeVisible()
     await expect(page.getByRole('button', { name: '取消' })).not.toBeVisible()

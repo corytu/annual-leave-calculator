@@ -180,6 +180,86 @@ test.describe('特休規則設定', () => {
     await expect(page.getByTestId('summary-entitled')).toContainText('20')
   })
 
+  test('成長列顯示滿最後一列門檻加 12 個月起的文字', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Default custom rules' last threshold is 120 months -> 120 + 12 = 132.
+    await expect(page.getByTestId('custom-growth-row')).toContainText('滿 132 個月起')
+  })
+
+  test('每年增加天數為 0 時，上限欄位停用', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    await page.getByLabel('每年增加天數').fill('0')
+
+    await expect(page.getByLabel('天數上限')).toBeDisabled()
+  })
+
+  test('每年增加天數留空時無法儲存並顯示錯誤', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    await page.getByLabel('每年增加天數').fill('')
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('每年增加天數請填寫大於等於 0、且為 0.25 的倍數的數字')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('天數上限低於最後一列天數時無法儲存並顯示錯誤', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Default growth per-year is prefilled at 1; last row's days is 16.
+    await page.getByLabel('天數上限').fill('10')
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('天數上限不可低於最後一列的天數（16 天）')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('天數上限非 0.25 倍數時無法儲存並顯示錯誤', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    await page.getByLabel('天數上限').fill('20.1')
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('天數上限請填寫 0.25 的倍數')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('成長設定儲存後首頁天數套用逐年成長', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Default growth (perYear 1, cap 30) is prefilled; keep it as-is.
+    // Onboard 2014-06-15 -> frozen "today" 2025-06-15 is exactly 132 completed
+    // months -> milestone 132, 12 months past the last threshold (120, 16
+    // days) -> 16 + 1*1 = 17.
+    await page.locator('input[type="date"]').fill('2014-06-15')
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    await expect(page.getByTestId('summary-entitled')).toContainText('17')
+  })
+
   test('公司另有規定使用預設門檻時，滿 4 年後仍是 12 個月一期', async ({ page }) => {
     // Driven through the UI rather than seeded: the default thresholds are
     // defined in Settings.jsx (DEFAULT_CUSTOM_RULES), so seeding them here

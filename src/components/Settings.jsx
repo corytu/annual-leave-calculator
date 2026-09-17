@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { checkLaborLawCompliance, getLaborLawDays, calculateSummary, toISODateString } from '../utils/leaveCalculations.js'
+import { checkLaborLawCompliance, getLaborLawDays, getDaysForMilestone, calculateSummary, toISODateString } from '../utils/leaveCalculations.js'
 import { buildBackupCsv, downloadCsv } from '../utils/exportCsv.js'
 import { DEFAULT_SETTINGS } from '../utils/storage.js'
 
@@ -14,6 +14,12 @@ const DEFAULT_CUSTOM_RULES = [
   { id: uuidv4(), months: 120, days: 16 },
 ]
 
+// Default growth prefilled for a new user setting up custom rules for the
+// first time. Existing data (loaded via storage.js) instead backfills to
+// {perYear: 0, cap: 0} ("no further growth") so it never silently changes
+// an existing user's days -- see isLocked below.
+const DEFAULT_CUSTOM_GROWTH = { perYear: 1, cap: 30 }
+
 export default function Settings({ settings, records, onSave, onCancel, onResign }) {
   const isLocked = Boolean(settings.onboardDate)
 
@@ -25,6 +31,15 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
       : DEFAULT_CUSTOM_RULES
   )
   const [allowCarryover, setAllowCarryover] = useState(settings.allowCarryover ?? false)
+  // isLocked distinguishes "existing data" (backfilled to {0, 0} by
+  // storage.js, must not be silently overridden) from "new user filling this
+  // in for the first time" (prefilled with a sensible default).
+  const [growthPerYear,  setGrowthPerYear]  = useState(
+    String(isLocked ? (settings.customGrowth?.perYear ?? 0) : DEFAULT_CUSTOM_GROWTH.perYear)
+  )
+  const [growthCap,      setGrowthCap]      = useState(
+    String(isLocked ? (settings.customGrowth?.cap ?? 0) : DEFAULT_CUSTOM_GROWTH.cap)
+  )
 
   // Compliance warnings derived from current custom rules
   const [warnings, setWarnings] = useState([])
@@ -78,6 +93,12 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
       days: Number(r.days),
     }))
 
+    // growthPerYearNum/growthCapNum are declared here, outside every branch,
+    // because both the validation below and the onSave(...) payload at the
+    // bottom of this function need them in scope.
+    const growthPerYearNum = Number(growthPerYear)
+    const growthCapNum = Number(growthCap)
+
     if (ruleType === 'custom') {
       // This whole block -- including the empty-list guard -- must stay inside
       // the `ruleType === 'custom'` branch. A user who deleted every custom
@@ -109,6 +130,31 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
           return
         }
       }
+
+      // Growth row validation, appended to the same custom-rules branch.
+      const perYearValid = growthPerYear !== '' && Number.isFinite(growthPerYearNum) &&
+        growthPerYearNum >= 0 && (growthPerYearNum * 4) % 1 === 0
+      if (!perYearValid) {
+        alert('每年增加天數請填寫大於等於 0、且為 0.25 的倍數的數字')
+        return
+      }
+      if (growthPerYearNum > 0) {
+        const lastDays = getDaysForMilestone(
+          Math.max(...sorted.map(r => r.months)), 'custom', customRules
+        )
+        if (growthCap === '' || !Number.isFinite(growthCapNum)) {
+          alert('天數上限請填寫數字')
+          return
+        }
+        if (growthCapNum < lastDays) {
+          alert(`天數上限不可低於最後一列的天數（${lastDays} 天）`)
+          return
+        }
+        if ((growthCapNum * 4) % 1 !== 0) {
+          alert('天數上限請填寫 0.25 的倍數')
+          return
+        }
+      }
     }
 
     onSave({
@@ -118,6 +164,9 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
         ? [...normalizedRules].sort((a, b) => a.months - b.months)
         : DEFAULT_SETTINGS.customRules,
       allowCarryover,
+      customGrowth: ruleType === 'custom'
+        ? { perYear: growthPerYearNum, cap: growthPerYearNum > 0 ? growthCapNum : 0 }
+        : DEFAULT_SETTINGS.customGrowth,
     })
   }
 
@@ -308,6 +357,43 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                         </td>
                       </tr>
                     ))}
+                    {/* Growth row: fixed at the bottom, no delete affordance. */}
+                    <tr data-testid="custom-growth-row">
+                      <td className="px-3 py-2 text-stone-600 whitespace-nowrap">
+                        滿 {Number(sortedRules[sortedRules.length - 1]?.months ?? 0) + 12} 個月起
+                      </td>
+                      <td className="px-3 py-2" colSpan={2}>
+                        <div className="flex items-center gap-1.5 flex-wrap text-xs text-stone-500">
+                          <span>每年加</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.25}
+                            value={growthPerYear}
+                            disabled={isLocked}
+                            aria-label="每年增加天數"
+                            onChange={e => setGrowthPerYear(e.target.value)}
+                            className="w-16 rounded border border-stone-300 px-2 py-1 text-sm
+                                       focus:outline-none focus:ring-1 focus:ring-teal-500
+                                       disabled:bg-stone-100 disabled:text-stone-500"
+                          />
+                          <span>天，上限</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.25}
+                            value={growthCap}
+                            disabled={isLocked || Number(growthPerYear) === 0}
+                            aria-label="天數上限"
+                            onChange={e => setGrowthCap(e.target.value)}
+                            className="w-16 rounded border border-stone-300 px-2 py-1 text-sm
+                                       focus:outline-none focus:ring-1 focus:ring-teal-500
+                                       disabled:bg-stone-100 disabled:text-stone-500"
+                          />
+                          <span>天</span>
+                        </div>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

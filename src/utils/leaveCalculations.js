@@ -170,21 +170,25 @@ export function getDaysForMilestone(milestoneMonths, ruleType, customRules, cust
     // Walk backwards through sorted rules to find the highest threshold ≤ milestone.
     const sorted = [...customRules].sort((a, b) => a.months - b.months);
     let days = 0;
-    let thresholdMonths = null;
     for (const rule of sorted) {
       if (rule.months <= milestoneMonths) {
         days = Number(rule.days);
-        thresholdMonths = rule.months;
       } else {
         break;
       }
     }
-    if (thresholdMonths === null) return days;
+    if (sorted.length === 0) return days;
 
+    // Growth only kicks in past the *last* (highest) threshold overall --
+    // not past whichever earlier threshold happens to apply to this
+    // particular milestone. A milestone between two thresholds still just
+    // gets that lower threshold's own days (D1), with no growth involved.
+    const lastRule = sorted[sorted.length - 1];
     const { perYear, cap } = normalizeCustomGrowth(customGrowth);
-    if (perYear > 0 && milestoneMonths > thresholdMonths) {
-      const k = Math.floor((milestoneMonths - thresholdMonths) / 12);
-      return Math.min(days + perYear * k, Math.max(cap, days));
+    if (perYear > 0 && milestoneMonths > lastRule.months) {
+      const lastDays = Number(lastRule.days);
+      const k = Math.floor((milestoneMonths - lastRule.months) / 12);
+      return Math.min(lastDays + perYear * k, Math.max(cap, lastDays));
     }
     return days;
   }
