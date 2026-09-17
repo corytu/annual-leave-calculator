@@ -37,7 +37,9 @@ set -euo pipefail
 #   - plan 迴圈的 revise 輪有防呆:如果 Coder 回傳的新計畫長度明顯比上一輪短很多,
 #     視為疑似「只回摘要、沒吐完整計畫」而直接中止,而不是讓退化默默發生。
 #   - diff 迴圈用 `git add -N .`(intent-to-add)把新增的 untracked 檔案也納入 diff,
-#     擷取完一定會把 index 復原,不留痕跡。diff 迴圈的 Coder 修正也是無狀態的,
+#     擷取完一定會把 index 復原,不留痕跡。擷取範圍會排除腳本自己(agent-loop.sh)
+#     跟 `.agent-log/`,不管這兩者有沒有被修改過,都不會混進被審查的 diff 裡——
+#     這是工具本身的狀態,不是要審查的程式碼。diff 迴圈的 Coder 修正也是無狀態的,
 #     它靠讀取目前的實際檔案內容(它有 Read/Edit 工具)加上每輪重新附上的 diff
 #     文字來掌握現況,不依賴記得自己之前做過什麼。
 #   - Coder/Reviewer 收到的資料(概念計畫、實作計畫、diff)不是塞進命令列參數,而是寫成
@@ -184,8 +186,9 @@ reviewer_call() {
 capture_diff_including_untracked() {
   # capture_diff_including_untracked <base-ref> <output-file>
   # 用 --intent-to-add 把新增的 untracked 檔案暫時標記進 index,讓 git diff 抓得到,
-  # 完成後不管成功失敗都會把 index 復原。不用 trap,直接手動控制 set -e,確保
-  # 復原這一步不會因為中途出錯而被跳過。
+  # 完成後不管成功失敗都會把 index 復原。diff 範圍會排除腳本自己(靠 $0 動態算出
+  # 相對路徑)跟 LOG_ROOT,避免這支腳本自己的異動或執行紀錄混進被審查的 diff。不用
+  # trap,直接手動控制 set -e,確保復原這一步不會因為中途出錯而被跳過。
   local base_ref="$1" out_file="$2"
 
   set +e
@@ -193,7 +196,14 @@ capture_diff_including_untracked() {
   local add_rc=$?
   local diff_rc=0
   if [[ ${add_rc} -eq 0 ]]; then
-    git diff "${base_ref}" >"${out_file}"
+    local repo_root self_path
+    repo_root="$(git rev-parse --show-toplevel)"
+    self_path="$(realpath --relative-to="${repo_root}" "$0" 2>/dev/null || true)"
+    if [[ -n "${self_path}" ]]; then
+      git diff "${base_ref}" -- . ":(exclude)${self_path}" ":(exclude)${LOG_ROOT}" >"${out_file}"
+    else
+      git diff "${base_ref}" -- . ":(exclude)${LOG_ROOT}" >"${out_file}"
+    fi
     diff_rc=$?
   fi
   if ! git restore --staged . >/dev/null 2>&1; then
