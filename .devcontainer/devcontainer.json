@@ -13,6 +13,8 @@
 
 	"mounts": [
 		"source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume"
+		// Optional: Mount .cache/ms-playwright to speed up container rebuilds
+		// "source=playwright-cache-${devcontainerId},target=/home/node/.cache/ms-playwright,type=volume"
 	],
 	"containerEnv": {
 		"CLAUDE_CONFIG_DIR": "/home/node/.claude",
@@ -23,7 +25,7 @@
 	// "forwardPorts": [],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "sudo chown -R node:node /home/node/.claude"
+	"postCreateCommand": "sudo chown -R node:node /home/node/.claude && npm ci && npx playwright install --with-deps chromium"
 
 	// Configure tool-specific properties.
 	// "customizations": {},
