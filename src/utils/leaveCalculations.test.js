@@ -109,6 +109,11 @@ describe('getLaborLawDays', () => {
   it('caps at 30 days and stays there beyond the cap (360 months)', () => {
     expect(getLaborLawDays(360)).toBe(30)
   })
+
+  it('first reaches the 30-day cap at 288 months (24 years)', () => {
+    expect(getLaborLawDays(287)).toBe(29)
+    expect(getLaborLawDays(288)).toBe(30)
+  })
 })
 
 describe('getMilestones (labor law extension covers upToMonths)', () => {
@@ -710,19 +715,76 @@ describe('formatPeriodLabel', () => {
 })
 
 describe('checkLaborLawCompliance', () => {
-  it('flags custom rules below the labor law minimum', () => {
-    const custom = [{ months: 12, days: 5 }] // labor law min at 12mo is 7
-    const warnings = checkLaborLawCompliance(custom)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toMatchObject({ months: 12, customDays: 5, legalMinimum: 7 })
-  })
-
-  it('does not flag rules that meet or exceed the labor law minimum', () => {
-    const custom = [{ months: 12, days: 7 }, { months: 24, days: 12 }]
-    expect(checkLaborLawCompliance(custom)).toHaveLength(0)
-  })
-
   it('returns an empty array for an empty rule set', () => {
     expect(checkLaborLawCompliance([])).toEqual([])
+  })
+
+  it('reports no warnings for the default custom rules with the default growth (matches labor law exactly)', () => {
+    const growth = { perYear: 1, cap: 30 }
+    expect(checkLaborLawCompliance(DEFAULT_CUSTOM_RULE_SET, growth)).toEqual([])
+  })
+
+  it('reports an open-ended warning starting past the last threshold when there is no growth', () => {
+    const warnings = checkLaborLawCompliance(DEFAULT_CUSTOM_RULE_SET) // no growth arg -> NO_CUSTOM_GROWTH
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].fromMonths).toBe(132)
+    expect(warnings[0].untilMonths).toBeNull()
+  })
+
+  it('reports a deficiency starting before the first custom threshold when it is later than 6 months', () => {
+    const custom = [
+      { months: 12, days: 7 }, { months: 24, days: 10 }, { months: 36, days: 14 },
+      { months: 60, days: 15 }, { months: 120, days: 16 },
+    ]
+    const growth = { perYear: 1, cap: 30 }
+    const warnings = checkLaborLawCompliance(custom, growth)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({
+      fromMonths: 6, untilMonths: 12,
+      customDaysMin: 0, customDaysMax: 0,
+      legalDaysMin: 3, legalDaysMax: 3,
+    })
+  })
+
+  it('merges consecutive deficient checkpoints created by a gap between two custom thresholds into one range with min/max', () => {
+    // Skips the 12mo and 24mo thresholds, so the 6mo threshold's 3 days
+    // carries through several checkpoints (labor's 12/24 plus the custom
+    // gap-fill's own 18/30) while labor law climbs from 7 to 10.
+    const custom = [
+      { months: 6, days: 3 }, { months: 36, days: 14 }, { months: 60, days: 15 }, { months: 120, days: 16 },
+    ]
+    const growth = { perYear: 1, cap: 30 }
+    const warnings = checkLaborLawCompliance(custom, growth)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({
+      fromMonths: 12, untilMonths: 36,
+      customDaysMin: 3, customDaysMax: 3,
+      legalDaysMin: 7, legalDaysMax: 10,
+    })
+  })
+
+  it('reports two non-adjacent deficient ranges as separate entries, not merged', () => {
+    const custom = [
+      { months: 6, days: 1 },  // below the 3-day minimum
+      { months: 12, days: 7 }, // meets the minimum
+      { months: 24, days: 5 }, // below the 10-day minimum
+      { months: 36, days: 14 }, { months: 60, days: 15 }, { months: 120, days: 16 },
+    ]
+    const growth = { perYear: 1, cap: 30 }
+    const warnings = checkLaborLawCompliance(custom, growth)
+    expect(warnings).toHaveLength(2)
+    expect(warnings[0]).toMatchObject({ fromMonths: 6, untilMonths: 12 })
+    expect(warnings[1]).toMatchObject({ fromMonths: 24, untilMonths: 36 })
+  })
+
+  it('clamps the horizon at MAX_MILESTONE_MONTHS instead of hanging when perYear is vanishingly small', () => {
+    const growth = { perYear: 0.001, cap: 30 }
+    const warnings = checkLaborLawCompliance(DEFAULT_CUSTOM_RULE_SET, growth)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].fromMonths).toBe(132)
+    expect(warnings[0].untilMonths).toBeNull() // still deficient at the clamped horizon
+    for (const w of warnings) {
+      expect(w.fromMonths).toBeLessThanOrEqual(1200)
+    }
   })
 })

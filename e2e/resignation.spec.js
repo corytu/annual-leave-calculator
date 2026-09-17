@@ -165,6 +165,40 @@ test.describe('離職重來', () => {
     await expect(page.getByText('應結清工資天數：0 天')).toBeVisible()
   })
 
+  test('既有資料鎖定後若因未設定成長規則而不合規，警告文字改為提示離職重來', async ({ page }) => {
+    // Pre-#35 data: no customGrowth field at all (storage.js backfills it to
+    // {perYear: 0, cap: 0}), so the default-shaped custom rules become
+    // deficient past the last threshold once compared against labor law's
+    // own ongoing +1/year growth.
+    await seedAppStorage(page, {
+      settings: {
+        onboardDate: '2024-06-15',
+        ruleType: 'custom',
+        customRules: [
+          { id: 'c1', months: 6, days: 3 },
+          { id: 'c2', months: 12, days: 7 },
+          { id: 'c3', months: 24, days: 10 },
+          { id: 'c4', months: 36, days: 14 },
+          { id: 'c5', months: 60, days: 15 },
+          { id: 'c6', months: 120, days: 16 },
+        ],
+        allowCarryover: false,
+      },
+      records: [],
+    })
+    await page.goto('/')
+    await page.getByRole('button', { name: '設定' }).click()
+
+    await expect(page.getByText('以下年資區間的天數低於勞基法最低標準')).toBeVisible()
+    await expect(page.getByText('如需調整請使用「離職重來」重新設定。')).toBeVisible()
+    await expect(page.getByText('仍可儲存，但請確認是否符合規定。')).not.toBeVisible()
+
+    for (const input of await page.locator('table tbody tr input[type="number"]').all()) {
+      await expect(input).toBeDisabled()
+    }
+    await expect(page.getByRole('button', { name: '儲存設定' })).not.toBeVisible()
+  })
+
   test('自訂規則為空的舊資料：首頁提示改用離職重來', async ({ page }) => {
     await seedAppStorage(page, {
       settings: { onboardDate: '2023-06-15', ruleType: 'custom', customRules: [], allowCarryover: false },

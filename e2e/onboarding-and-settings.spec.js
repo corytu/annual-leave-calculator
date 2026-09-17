@@ -60,8 +60,42 @@ test.describe('特休規則設定', () => {
     const row = page.locator('table tbody tr').filter({ has: page.locator('input[value="12"]') })
     await row.locator('input[step="0.25"]').fill('5')
 
-    await expect(page.getByText('以下規則低於勞基法最低標準')).toBeVisible()
-    await expect(page.getByText('滿 12 個月：您設定 5 天，勞基法最低 7 天')).toBeVisible()
+    await expect(page.getByText('以下年資區間的天數低於勞基法最低標準')).toBeVisible()
+    await expect(page.getByText('滿 12 個月至未滿 24 個月：您的規則 5 天，勞基法最低 7 天')).toBeVisible()
+  })
+
+  test('沒有成長設定時顯示滿 132 個月起的開放式不合規警告', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    await page.getByLabel('每年增加天數').fill('0')
+
+    // No growth past the last threshold (120mo, 16 days): stays deficient
+    // forever once labor law climbs from 17 (132mo) up to its 30-day cap
+    // (288mo) and plateaus there through the comparison horizon.
+    await expect(page.getByText('滿 132 個月起：您的規則 16 天，勞基法最低 17~30 天')).toBeVisible()
+  })
+
+  test('第一個自訂門檻晚於 6 個月時顯示缺口', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const sixMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    await sixMonthRow.getByRole('button', { name: '刪除此規則' }).click()
+
+    // Below the (now first) 12mo threshold, custom gives 0 days while labor
+    // law's 6mo minimum is 3.
+    await expect(page.getByText('滿 6 個月至未滿 12 個月：您的規則 0 天，勞基法最低 3 天')).toBeVisible()
+  })
+
+  test('兩段不相鄰的缺口同時顯示為獨立項目', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const sixMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    await sixMonthRow.locator('input[step="0.25"]').fill('1')
+    const twentyFourMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="24"]') })
+    await twentyFourMonthRow.locator('input[step="0.25"]').fill('5')
+
+    await expect(page.getByText('滿 6 個月至未滿 12 個月：您的規則 1 天，勞基法最低 3 天')).toBeVisible()
+    await expect(page.getByText('滿 24 個月至未滿 36 個月：您的規則 5 天，勞基法最低 10 天')).toBeVisible()
   })
 
   test('刪除自訂規則後列表更新', async ({ page }) => {

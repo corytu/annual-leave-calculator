@@ -50,12 +50,13 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
   useEffect(() => {
     if (ruleType === 'custom') {
       setWarnings(checkLaborLawCompliance(
-        customRules.map(r => ({ ...r, months: Number(r.months), days: Number(r.days) }))
+        customRules.map(r => ({ ...r, months: Number(r.months), days: Number(r.days) })),
+        { perYear: Number(growthPerYear), cap: Number(growthCap) }
       ))
     } else {
       setWarnings([])
     }
-  }, [ruleType, customRules])
+  }, [ruleType, customRules, growthPerYear, growthCap])
 
   // ── Custom rules helpers ─────────────────────────────────────────────────
 
@@ -279,15 +280,28 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
               {/* Compliance warnings */}
               {warnings.length > 0 && (
                 <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-                  <p className="font-semibold mb-1">⚠ 以下規則低於勞基法最低標準</p>
+                  <p className="font-semibold mb-1">⚠ 以下年資區間的天數低於勞基法最低標準</p>
                   <ul className="list-disc list-inside space-y-0.5">
-                    {warnings.map(w => (
-                      <li key={w.months}>
-                        滿 {w.months} 個月：您設定 {w.customDays} 天，勞基法最低 {w.legalMinimum} 天
-                      </li>
-                    ))}
+                    {warnings.map(w => {
+                      const rangeLabel = w.untilMonths != null
+                        ? `滿 ${w.fromMonths} 個月至未滿 ${w.untilMonths} 個月`
+                        : `滿 ${w.fromMonths} 個月起`
+                      const customRange = w.customDaysMin === w.customDaysMax
+                        ? `${w.customDaysMin}`
+                        : `${w.customDaysMin}~${w.customDaysMax}`
+                      const legalRange = w.legalDaysMin === w.legalDaysMax
+                        ? `${w.legalDaysMin}`
+                        : `${w.legalDaysMin}~${w.legalDaysMax}`
+                      return (
+                        <li key={w.fromMonths}>
+                          {rangeLabel}：您的規則 {customRange} 天，勞基法最低 {legalRange} 天
+                        </li>
+                      )
+                    })}
                   </ul>
-                  <p className="mt-1 text-xs text-amber-600">仍可儲存，但請確認是否符合規定。</p>
+                  <p className="mt-1 text-xs text-amber-600">
+                    {isLocked ? '如需調整請使用「離職重來」重新設定。' : '仍可儲存，但請確認是否符合規定。'}
+                  </p>
                 </div>
               )}
 

@@ -513,21 +513,79 @@ export function formatPeriodLabel(periodStart, periodEnd) {
 
 // ─── Compliance check ─────────────────────────────────────────────────────────
 
+/** getLaborLawDays() first reaches its 30-day cap at 288 months (24 years). */
+const LABOR_LAW_CAP_MONTHS = 288;
+
 /**
- * Check if any custom rule gives fewer days than the labor law minimum
- * for the same tenure threshold.
+ * Check whether the custom rules (with growth) ever give fewer days than the
+ * labor law minimum, at any point in time.
  *
- * Returns an array of warning objects.
+ * Compares custom vs. labor-law entitlement at every checkpoint in the union
+ * of the labor-law milestone points and the custom milestone points (their
+ * entitlements only change at these points, so checking the union is
+ * equivalent to checking every point in time). Checkpoints below the labor
+ * law's own minimum tenure (legalMin === 0) are skipped. Consecutive
+ * deficient checkpoints merge into a single range; non-adjacent ranges stay
+ * separate.
+ *
+ * The comparison horizon is bounded by MAX_MILESTONE_MONTHS. `untilMonths:
+ * null` on the last range therefore means "still deficient at the horizon",
+ * not a mathematical proof that it stays deficient forever.
+ *
+ * @returns {Array<{
+ *   fromMonths, untilMonths: number | null,
+ *   customDaysMin, customDaysMax, legalDaysMin, legalDaysMax,
+ * }>}
  */
-export function checkLaborLawCompliance(customRules) {
-  return customRules
-    .filter(rule => {
-      const legalMin = getLaborLawDays(rule.months);
-      return legalMin > 0 && rule.days < legalMin;
-    })
-    .map(rule => ({
-      months: rule.months,
-      customDays: rule.days,
-      legalMinimum: getLaborLawDays(rule.months),
-    }));
+export function checkLaborLawCompliance(customRules, customGrowth = NO_CUSTOM_GROWTH) {
+  const thresholds = normalizeCustomThresholds(customRules);
+  if (thresholds.length === 0) return [];
+
+  const { perYear, cap } = normalizeCustomGrowth(customGrowth);
+  const lastThreshold = thresholds[thresholds.length - 1];
+  const lastDays = getDaysForMilestone(lastThreshold, 'custom', customRules);
+
+  let stableAt = lastThreshold;
+  if (perYear > 0 && cap > lastDays) {
+    stableAt = lastThreshold + 12 * Math.ceil((cap - lastDays) / perYear);
+  }
+  const horizon = Math.min(MAX_MILESTONE_MONTHS, Math.max(LABOR_LAW_CAP_MONTHS, stableAt) + 12);
+
+  const checkpoints = [...new Set([
+    ...getMilestones('labor', [], horizon),
+    ...getMilestones('custom', customRules, horizon),
+  ])]
+    .filter(m => m <= horizon)
+    .sort((a, b) => a - b);
+
+  const warnings = [];
+  let current = null;
+
+  for (const m of checkpoints) {
+    const legal = getLaborLawDays(m);
+    if (legal === 0) continue;
+
+    const custom = getDaysForMilestone(m, 'custom', customRules, customGrowth);
+    if (custom < legal) {
+      if (current === null) {
+        current = {
+          fromMonths: m, untilMonths: null,
+          customDaysMin: custom, customDaysMax: custom,
+          legalDaysMin: legal, legalDaysMax: legal,
+        };
+      } else {
+        current.customDaysMin = Math.min(current.customDaysMin, custom);
+        current.customDaysMax = Math.max(current.customDaysMax, custom);
+        current.legalDaysMin = Math.min(current.legalDaysMin, legal);
+        current.legalDaysMax = Math.max(current.legalDaysMax, legal);
+      }
+    } else if (current !== null) {
+      current.untilMonths = m;
+      warnings.push(current);
+      current = null;
+    }
+  }
+  if (current !== null) warnings.push(current);
+
+  return warnings;
 }
