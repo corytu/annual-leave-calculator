@@ -78,14 +78,32 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
       days: Number(r.days),
     }))
 
-    // Validate custom rules: months must be positive integers, days must be >0
     if (ruleType === 'custom') {
+      // This whole block -- including the empty-list guard -- must stay inside
+      // the `ruleType === 'custom'` branch. A user who deleted every custom
+      // rule and then switched back to 'labor' has an empty customRules array
+      // that is irrelevant once ruleType is 'labor'; if the guard ran
+      // unconditionally, they could never save again.
+      if (normalizedRules.length === 0) {
+        alert('請至少保留一條自訂規則')
+        return
+      }
+
       const sorted = [...normalizedRules].sort((a, b) => a.months - b.months)
+      const seenMonths = new Set()
       for (const r of sorted) {
-        if (!Number.isInteger(r.months) || r.months < 1) {
-          alert('年資門檻請填寫正整數（月數）')
+        // Reject months beyond the sanity ceiling used by
+        // normalizeCustomThresholds (D14), so a silently-dropped threshold
+        // doesn't look like a successful save.
+        if (!Number.isInteger(r.months) || r.months < 1 || r.months > 1200) {
+          alert('年資門檻請填寫 1200 個月（100 年）以內的正整數')
           return
         }
+        if (seenMonths.has(r.months)) {
+          alert(`年資門檻「${r.months} 個月」重複，請合併或刪除其中一列`)
+          return
+        }
+        seenMonths.add(r.months)
         if (!r.days || r.days <= 0) {
           alert('特休天數請填寫大於 0 的數字')
           return
@@ -236,12 +254,13 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                   </thead>
                   <tbody className="divide-y divide-stone-100">
                     {sortedRules.map(rule => (
-                      <tr key={rule.id}>
+                      <tr key={rule.id} data-testid="custom-rule-row">
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1.5">
                             <input
                               type="number"
                               min={1}
+                              max={1200}
                               step={1}
                               value={rule.months}
                               disabled={isLocked}
@@ -276,7 +295,8 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                         <td className="px-3 py-2 text-right">
                           <button
                             onClick={() => removeCustomRule(rule.id)}
-                            disabled={isLocked}
+                            disabled={isLocked || customRules.length <= 1}
+                            title={customRules.length <= 1 ? '至少需保留一條規則' : undefined}
                             className="text-stone-400 hover:text-red-500 transition-colors
                                        disabled:opacity-40 disabled:hover:text-stone-400 disabled:cursor-not-allowed"
                             aria-label="刪除此規則"

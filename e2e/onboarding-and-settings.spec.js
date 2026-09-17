@@ -66,12 +66,66 @@ test.describe('特休規則設定', () => {
 
   test('刪除自訂規則後列表更新', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
-    const rows = page.locator('table tbody tr')
+    const rows = page.getByTestId('custom-rule-row')
     const before = await rows.count()
 
     await rows.first().getByRole('button', { name: '刪除此規則' }).click()
 
     await expect(rows).toHaveCount(before - 1)
+  })
+
+  test('自訂門檻重複時無法儲存並顯示明確錯誤', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // The default rows include a 12-month threshold; retarget the 6-month
+    // row's threshold to 12 so two rows now share the same months value.
+    const row = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    await row.locator('input[step="1"]').fill('12')
+
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('年資門檻「12 個月」重複，請合併或刪除其中一列')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('自訂規則只剩一列時刪除按鈕為 disabled', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const rows = page.getByTestId('custom-rule-row')
+    let count = await rows.count()
+    while (count > 1) {
+      await rows.first().getByRole('button', { name: '刪除此規則' }).click()
+      count = await rows.count()
+    }
+
+    await expect(rows).toHaveCount(1)
+    await expect(rows.first().getByRole('button', { name: '刪除此規則' })).toBeDisabled()
+  })
+
+  test('年資門檻超過安全上限時無法儲存', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const row = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    await row.locator('input[step="1"]').fill('1201')
+
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('年資門檻請填寫 1200 個月（100 年）以內的正整數')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
 
   test('每年可休天數輸入框：可以逐字元打出完整的小數（不會在打出小數點時被吃掉）', async ({ page }) => {

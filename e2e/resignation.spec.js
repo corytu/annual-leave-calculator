@@ -8,7 +8,10 @@ import { freezeTime, seedAppStorage } from './helpers.js'
 const LOCKED_SETTINGS = {
   onboardDate: '2024-06-15',
   ruleType: 'custom',
-  customRules: [{ id: 'c1', months: 12, days: 10 }],
+  customRules: [
+    { id: 'c1', months: 12, days: 10 },
+    { id: 'c2', months: 24, days: 14 },
+  ],
   allowCarryover: true,
 }
 
@@ -72,7 +75,11 @@ test.describe('離職重來', () => {
     await expect(page.getByRole('button', { name: '公司另有規定' })).toBeDisabled()
     await expect(page.locator('table tbody tr input[type="number"]').first()).toBeDisabled()
     await expect(page.locator('table tbody tr input[type="number"]').nth(1)).toBeDisabled()
-    await expect(page.getByRole('button', { name: '刪除此規則' })).toBeDisabled()
+    const deleteButtons = page.getByRole('button', { name: '刪除此規則' })
+    await expect(deleteButtons).toHaveCount(2)
+    for (const btn of await deleteButtons.all()) {
+      await expect(btn).toBeDisabled()
+    }
     await expect(page.getByRole('switch')).toBeDisabled()
     await expect(page.getByRole('button', { name: '儲存設定' })).not.toBeVisible()
     await expect(page.getByRole('button', { name: '取消' })).not.toBeVisible()
