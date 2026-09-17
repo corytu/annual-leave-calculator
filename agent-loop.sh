@@ -395,7 +395,7 @@ run_diff_review_loop() {
     } >"${cprompt}"
 
     local cresp
-    cresp="$(coder_call "${cprompt}" "bypassPermissions")"
+    cresp="$(coder_call "${cprompt}" "auto")"
     require_success "${cresp}" "Coder(diff round ${round} fix)"
     log "round-${round}-diff" "Coder(fix)" "$(echo "${cresp}" | jq -r '.result')"
 
