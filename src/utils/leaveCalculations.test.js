@@ -268,6 +268,22 @@ describe('getDaysForMilestone', () => {
       const growth = { perYear: 1, cap: 20 }
       expect(getDaysForMilestone(24, 'custom', custom, growth)).toBe(8) // not '7' + 1 = '71'
     })
+
+    it('ignores a rule with an invalid months value (e.g. cleared to 0 mid-edit) for the base days', () => {
+      // Same filter as normalizeCustomThresholds: a 0-months row never
+      // becomes a real milestone, so it must not contribute days either.
+      const custom = [{ months: 0, days: 3 }, { months: 12, days: 7 }]
+      expect(getDaysForMilestone(6, 'custom', custom)).toBe(0)
+      expect(getDaysForMilestone(12, 'custom', custom)).toBe(7)
+    })
+
+    it('does not let a threshold beyond MAX_MILESTONE_MONTHS silently become the growth anchor', () => {
+      const custom = [{ months: 12, days: 7 }, { months: 1201, days: 20 }]
+      const growth = { perYear: 1, cap: 30 }
+      // The 1201mo row is dropped, so 12mo (7 days) is the effective last
+      // threshold and growth kicks in past it, not past the invalid 1201mo row.
+      expect(getDaysForMilestone(24, 'custom', custom, growth)).toBe(8)
+    })
   })
 })
 

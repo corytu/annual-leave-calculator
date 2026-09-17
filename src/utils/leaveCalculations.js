@@ -167,28 +167,36 @@ function normalizeCustomGrowth(customGrowth) {
  */
 export function getDaysForMilestone(milestoneMonths, ruleType, customRules, customGrowth = NO_CUSTOM_GROWTH) {
   if (ruleType === 'custom') {
-    // Walk backwards through sorted rules to find the highest threshold ≤ milestone.
-    const sorted = [...customRules].sort((a, b) => a.months - b.months);
+    // Only consider rules whose months value is a valid threshold -- the
+    // same filter as normalizeCustomThresholds. Without this, a row mid-edit
+    // (e.g. months cleared to 0) would still contribute its days here even
+    // though getMilestones() already ignores it, and a months value beyond
+    // MAX_MILESTONE_MONTHS would silently become the growth anchor below.
+    const validRules = (customRules ?? [])
+      .map(r => ({ months: Number(r?.months), days: Number(r?.days) }))
+      .filter(r => Number.isInteger(r.months) && r.months >= 1 && r.months <= MAX_MILESTONE_MONTHS)
+      .sort((a, b) => a.months - b.months);
+
+    // Walk through valid rules to find the highest threshold ≤ milestone.
     let days = 0;
-    for (const rule of sorted) {
+    for (const rule of validRules) {
       if (rule.months <= milestoneMonths) {
-        days = Number(rule.days);
+        days = rule.days;
       } else {
         break;
       }
     }
-    if (sorted.length === 0) return days;
+    if (validRules.length === 0) return days;
 
-    // Growth only kicks in past the *last* (highest) threshold overall --
-    // not past whichever earlier threshold happens to apply to this
+    // Growth only kicks in past the *last* (highest) valid threshold overall
+    // -- not past whichever earlier threshold happens to apply to this
     // particular milestone. A milestone between two thresholds still just
     // gets that lower threshold's own days (D1), with no growth involved.
-    const lastRule = sorted[sorted.length - 1];
+    const lastRule = validRules[validRules.length - 1];
     const { perYear, cap } = normalizeCustomGrowth(customGrowth);
     if (perYear > 0 && milestoneMonths > lastRule.months) {
-      const lastDays = Number(lastRule.days);
       const k = Math.floor((milestoneMonths - lastRule.months) / 12);
-      return Math.min(lastDays + perYear * k, Math.max(cap, lastDays));
+      return Math.min(lastRule.days + perYear * k, Math.max(cap, lastRule.days));
     }
     return days;
   }

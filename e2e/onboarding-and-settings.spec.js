@@ -72,7 +72,7 @@ test.describe('特休規則設定', () => {
     // No growth past the last threshold (120mo, 16 days): stays deficient
     // forever once labor law climbs from 17 (132mo) up to its 30-day cap
     // (288mo) and plateaus there through the comparison horizon.
-    await expect(page.getByText('滿 132 個月起：您的規則 16 天，勞基法最低 17~30 天')).toBeVisible()
+    await expect(page.getByText('滿 132 個月起：您的規則 16 天，勞基法最低 17～30 天')).toBeVisible()
   })
 
   test('第一個自訂門檻晚於 6 個月時顯示缺口', async ({ page }) => {
@@ -214,11 +214,30 @@ test.describe('特休規則設定', () => {
     await expect(page.getByTestId('summary-entitled')).toContainText('20')
   })
 
-  test('成長列顯示滿最後一列門檻加 12 個月起的文字', async ({ page }) => {
+  test('成長列顯示滿最後一列門檻加 12 個月起的文字，且門檻隨最後一列月數更新', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 
     // Default custom rules' last threshold is 120 months -> 120 + 12 = 132.
+    // Growth defaults to perYear 1 / cap 30 for a brand-new setup (D8).
     await expect(page.getByTestId('custom-growth-row')).toContainText('滿 132 個月起')
+    await expect(page.getByLabel('每年增加天數')).toHaveValue('1')
+    await expect(page.getByLabel('天數上限')).toHaveValue('30')
+    // No delete affordance on the growth row -- it's not a removable rule.
+    await expect(page.getByTestId('custom-growth-row').getByRole('button', { name: '刪除此規則' })).toHaveCount(0)
+
+    // Retarget the last (120mo) row's threshold to 96 -> growth row follows to 96 + 12 = 108.
+    const lastRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="120"]') })
+    await lastRow.locator('input[step="1"]').fill('96')
+    await expect(page.getByTestId('custom-growth-row')).toContainText('滿 108 個月起')
+  })
+
+  test('新增規則後成長列門檻跟著更新', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // addCustomRule() appends 12 months past the current last row (120 -> 132),
+    // so the growth row's threshold follows it to 132 + 12 = 144.
+    await page.getByRole('button', { name: '新增規則' }).click()
+    await expect(page.getByTestId('custom-growth-row')).toContainText('滿 144 個月起')
   })
 
   test('每年增加天數為 0 時，上限欄位停用', async ({ page }) => {

@@ -192,6 +192,16 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
 
   const sortedRules = [...customRules].sort((a, b) => a.months - b.months)
 
+  // Mirrors normalizeCustomThresholds' filter (that helper stays private to
+  // leaveCalculations.js) so the growth row's threshold always matches the
+  // one getMilestones()/getDaysForMilestone() actually use -- not just
+  // "whatever the last row happens to contain", which could be a mid-edit
+  // value (e.g. months cleared to 0) or one beyond the sanity ceiling.
+  const validThresholds = customRules
+    .map(r => Number(r.months))
+    .filter(m => Number.isInteger(m) && m >= 1 && m <= 1200)
+  const lastValidThreshold = validThresholds.length > 0 ? Math.max(...validThresholds) : null
+
   return (
     <div className="space-y-6">
       <div>
@@ -288,10 +298,10 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                         : `滿 ${w.fromMonths} 個月起`
                       const customRange = w.customDaysMin === w.customDaysMax
                         ? `${w.customDaysMin}`
-                        : `${w.customDaysMin}~${w.customDaysMax}`
+                        : `${w.customDaysMin}～${w.customDaysMax}`
                       const legalRange = w.legalDaysMin === w.legalDaysMax
                         ? `${w.legalDaysMin}`
-                        : `${w.legalDaysMin}~${w.legalDaysMax}`
+                        : `${w.legalDaysMin}～${w.legalDaysMax}`
                       return (
                         <li key={w.fromMonths}>
                           {rangeLabel}：您的規則 {customRange} 天，勞基法最低 {legalRange} 天
@@ -374,7 +384,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                     {/* Growth row: fixed at the bottom, no delete affordance. */}
                     <tr data-testid="custom-growth-row">
                       <td className="px-3 py-2 text-stone-600 whitespace-nowrap">
-                        滿 {Number(sortedRules[sortedRules.length - 1]?.months ?? 0) + 12} 個月起
+                        {lastValidThreshold !== null ? `滿 ${lastValidThreshold + 12} 個月起` : '—'}
                       </td>
                       <td className="px-3 py-2" colSpan={2}>
                         <div className="flex items-center gap-1.5 flex-wrap text-xs text-stone-500">
@@ -397,7 +407,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                             min={0}
                             step={0.25}
                             value={growthCap}
-                            disabled={isLocked || Number(growthPerYear) === 0}
+                            disabled={isLocked || (growthPerYear !== '' && Number(growthPerYear) === 0)}
                             aria-label="天數上限"
                             onChange={e => setGrowthCap(e.target.value)}
                             className="w-16 rounded border border-stone-300 px-2 py-1 text-sm
