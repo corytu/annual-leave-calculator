@@ -40,8 +40,11 @@ set -euo pipefail
 #     擷取完一定會把 index 復原,不留痕跡。diff 迴圈的 Coder 修正也是無狀態的,
 #     它靠讀取目前的實際檔案內容(它有 Read/Edit 工具)加上每輪重新附上的 diff
 #     文字來掌握現況,不依賴記得自己之前做過什麼。
-#   - 大檔案在送進 claude 前會先做 byte 數檢查,避免觸發 shell 的
-#     "Argument list too long"。
+#   - Coder/Reviewer 收到的資料(概念計畫、實作計畫、diff)不是塞進命令列參數,而是寫成
+#     檔案後叫它們用自己的 Read 工具去讀。這是為了閃避 Linux 對單一個命令列參數長度的
+#     硬限制(MAX_ARG_STRLEN,常見 128KB)——這個限制遠低於一般人以為的 ARG_MAX 總量
+#     上限(~2MB),這份審查資料很容易就超過,一旦超過會直接讓 claude 執行失敗、丟出
+#     "Argument list too long",不是能靠腳本內部的檢查攔下來的軟性錯誤。
 #   - 實際「實作」(原本流程的步驟 6)刻意不放進這支腳本:計畫核准後,你自己開一個
 #     全新的互動 session(不是 --resume),把 approved-plan.md 的內容貼給它當起點,
 #     互動著看它實作。這支腳本只自動化「審查來回」的部分。
@@ -70,7 +73,9 @@ CODER_EFFORT="high"
 REVIEWER_EFFORT="high"
 MAX_ROUNDS=5
 LOG_ROOT=".agent-log"
-MAX_PROMPT_BYTES=800000
+# 資料是靠 Read 工具讀檔案,不是塞進命令列參數,不受 shell 參數長度限制;這個
+# 門檻純粹是防止離譜過大的輸入把 model 的 context 灌爆的鬆散上限。
+MAX_PROMPT_BYTES=3000000
 # revise 輪的新計畫長度若低於上一輪的這個比例,視為疑似退化並中止(0.0–1.0)
 PLAN_SHRINK_GUARD=0.6
 
@@ -112,6 +117,9 @@ require_success() {
 }
 
 assert_reasonable_size() {
+  # 這裡的門檻不是為了閃避 shell 的參數長度限制(現在資料是靠 Read 工具讀檔案,
+  # 不再塞進命令列參數,不會撞到那個限制了),純粹是防止離譜過大的輸入把 model
+  # 的 context 灌爆、或不小心整個 repo 誤觸,不是精算過的臨界值。
   local file="$1" label="$2"
   local size
   size="$(wc -c <"${file}")"
@@ -125,13 +133,23 @@ assert_reasonable_size() {
 coder_call() {
   # coder_call <prompt-file> <permission-mode>
   # 完全 stateless:每次都是全新 session,不 --resume。需要的脈絡(概念計畫、
-  # 目前進度、Reviewer 意見)全部由呼叫端組進 prompt 內容裡,見檔頭說明。
+  # 目前進度、Reviewer 意見)全部由呼叫端組進 prompt_file 這個檔案裡,見檔頭說明。
+  #
+  # 注意:-p 只傳一句短指令,叫它自己用 Read 工具去讀 prompt_file,不把檔案內容
+  # 塞進命令列參數。Linux 對單一個參數本身的長度有一個遠低於總參數量上限的
+  # 硬限制(MAX_ARG_STRLEN,常見是 128KB),這份審查資料(概念計畫+實作計畫+diff)
+  # 很容易就超過,一旦超過會直接讓 claude 這個執行檔啟動失敗、丟出
+  # "Argument list too long",不是 assert_reasonable_size 那種軟性的、可控的錯誤。
   local prompt_file="$1" perm_mode="$2"
   assert_reasonable_size "${prompt_file}" "Coder prompt"
 
+  local abs_path
+  abs_path="$(cd "$(dirname "${prompt_file}")" && pwd)/$(basename "${prompt_file}")"
+  local instruction="請完整閱讀 ${abs_path} 這個檔案的內容,裡面包含你這次需要的完整任務說明與所有背景資料,並依照裡面的指示執行。"
+
   local err_file="${RUN_DIR}/.last-coder-stderr"
   local resp
-  resp="$(claude -p "$(cat "${prompt_file}")" \
+  resp="$(claude -p "${instruction}" \
     --model "${CODER_MODEL}" \
     --effort "${CODER_EFFORT}" \
     --permission-mode "${perm_mode}" \
@@ -147,10 +165,15 @@ coder_call() {
 }
 
 reviewer_call() {
-  # 完全 stateless。見檔頭說明。
+  # 完全 stateless。同樣改用「讀檔案」而不是「塞進參數」,理由見 coder_call 的註解。
   local prompt_file="$1"
   assert_reasonable_size "${prompt_file}" "Reviewer prompt"
-  claude -p "$(cat "${prompt_file}")" \
+
+  local abs_path
+  abs_path="$(cd "$(dirname "${prompt_file}")" && pwd)/$(basename "${prompt_file}")"
+  local instruction="請完整閱讀 ${abs_path} 這個檔案的內容,裡面包含你這次需要審查的完整資料,並依照裡面的指示執行審查。"
+
+  claude -p "${instruction}" \
     --model "${REVIEWER_MODEL}" \
     --effort "${REVIEWER_EFFORT}" \
     --allowedTools "Read,Grep,Glob" \
