@@ -14,7 +14,7 @@ export default defineConfig({
       // Coverage is scoped to the pure-logic layer only (test plan §7).
       include: ['src/utils/**'],
       exclude: ['src/utils/**/*.test.js'],
-      reporter: ['text', 'html'],
+      reporter: ['text', 'html', 'cobertura'],
     },
   },
 })
