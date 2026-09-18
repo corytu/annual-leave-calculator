@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime, seedAppStorage } from './helpers.js'
+import { freezeTime, seedAppStorage, zhDayLabel } from './helpers.js'
 
 // This file covers period-tab *UI behavior* (labels, ordering, selection,
 // summary-card follow-through) as opposed to chained-carryover calculation
@@ -127,5 +127,82 @@ test.describe('期別分頁', () => {
     // Still showing the previous period's own numbers, not snapped back to the newest one.
     await expect(page.getByTestId('summary-entitled')).toContainText('10')
     await expect(page.getByTestId('summary-taken')).toContainText('1')
+  })
+
+  test('切換到較舊分頁後，月曆顯示該期間內的月份', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
+    await page.goto('/')
+
+    // The default tab (milestone 36) is showing "today"'s month (2025-06).
+    // milestone 24's period (2024-06-15 ~ 2025-06-14) does not contain
+    // "today", so switching to it should reset the calendar to show its own
+    // periodStart month (2024-06) instead of staying on 2025-06.
+    await page.getByTestId('period-tabs').getByRole('button', { name: '2024–25', exact: true }).click()
+
+    const juneFifteen2024 = page.getByRole('button', { name: zhDayLabel({ year: 2024, month: 6, day: 15 }), exact: true })
+    await expect(juneFifteen2024).toBeVisible()
+  })
+
+  test('切換分頁後，表單中尚未送出的輸入被清空', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
+    await page.goto('/')
+
+    await page.locator('input[type="date"]').fill('2025-07-01')
+    await page.getByTestId('period-tabs').getByRole('button', { name: '2024–25', exact: true }).click()
+
+    await expect(page.locator('input[type="date"]')).toHaveValue('')
+  })
+
+  test('編輯中切換分頁後，表單回到新增模式且欄位清空', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, {
+      settings: SETTINGS_WITH_CARRYOVER,
+      records: [{ id: 'r1', startDate: '2025-07-01', days: 2 }],
+    })
+    await page.goto('/')
+
+    await page.getByRole('button', { name: '編輯' }).click()
+    await expect(page.getByRole('heading', { name: '編輯請假記錄' })).toBeVisible()
+    await expect(page.locator('input[type="date"]')).toHaveValue('2025-07-01')
+
+    await page.getByTestId('period-tabs').getByRole('button', { name: '2024–25', exact: true }).click()
+
+    await expect(page.getByRole('heading', { name: '新增請假記錄' })).toBeVisible()
+    await expect(page.locator('input[type="date"]')).toHaveValue('')
+  })
+
+  test('點擊目前已選取的分頁不會中斷編輯', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, {
+      settings: SETTINGS_WITH_CARRYOVER,
+      records: [{ id: 'r1', startDate: '2025-07-01', days: 2 }],
+    })
+    await page.goto('/')
+
+    await page.getByRole('button', { name: '編輯' }).click()
+    await expect(page.getByRole('heading', { name: '編輯請假記錄' })).toBeVisible()
+
+    await page.getByTestId('period-tabs').getByRole('button', { name: '2025–26', exact: true }).click()
+
+    await expect(page.getByRole('heading', { name: '編輯請假記錄' })).toBeVisible()
+    await expect(page.locator('input[type="date"]')).toHaveValue('2025-07-01')
+  })
+
+  test('切換分頁後點月曆日期仍能正確帶入表單', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
+    await page.goto('/')
+
+    await page.getByTestId('period-tabs').getByRole('button', { name: '2024–25', exact: true }).click()
+
+    // The reset calendar view starts on the period's own start month (2024-06,
+    // since "today" 2025-06-15 isn't within this period) -- pick a day tile
+    // from that same month so it's actually visible without navigating.
+    const june20th2024 = page.getByRole('button', { name: zhDayLabel({ year: 2024, month: 6, day: 20 }), exact: true })
+    await june20th2024.click()
+
+    await expect(page.locator('input[type="date"]')).toHaveValue('2024-06-20')
   })
 })

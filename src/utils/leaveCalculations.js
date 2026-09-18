@@ -114,25 +114,89 @@ function buildLaborLawMilestones(upToMonths) {
 
 // ─── Rules resolution ────────────────────────────────────────────────────────
 
+// Sanity ceiling for any month-threshold value. Bounds the gap-fill loop
+// below (a huge gap between two thresholds would otherwise iterate millions
+// of times) and is reused by checkLaborLawCompliance's horizon clamp (#20).
+const MAX_MILESTONE_MONTHS = 1200; // 100 years
+
+/**
+ * Clean user-entered thresholds into sorted, de-duplicated positive integers
+ * within a sane range.
+ * Duplicates must be removed here: getPeriodInfo() looks up the next
+ * milestone by position, so a repeated value would make a period end
+ * before it starts (#20).
+ */
+function normalizeCustomThresholds(customRules) {
+  return [...new Set(
+    (customRules ?? [])
+      .map(r => Number(r?.months))
+      .filter(m => Number.isInteger(m) && m >= 1 && m <= MAX_MILESTONE_MONTHS)
+  )].sort((a, b) => a - b);
+}
+
+/** customGrowth value meaning "no growth after the last custom threshold". */
+export const NO_CUSTOM_GROWTH = Object.freeze({ perYear: 0, cap: 0 });
+
+/**
+ * Coerce a possibly-partial or malformed customGrowth object into safe
+ * numbers. Needed because settings loaded from storage may predate this
+ * field, or customGrowth may be `null` from a hand-edited localStorage blob.
+ */
+function normalizeCustomGrowth(customGrowth) {
+  const perYear = Number(customGrowth?.perYear);
+  const cap = Number(customGrowth?.cap);
+  return {
+    perYear: Number.isFinite(perYear) && perYear > 0 ? perYear : 0,
+    cap: Number.isFinite(cap) && cap > 0 ? cap : 0,
+  };
+}
+
 /**
  * Compute entitled days for the period starting at `milestoneMonths` given
  * the user's settings.
  *
+ * For custom rules, once `milestoneMonths` passes the highest threshold at or
+ * below it, `customGrowth.perYear` days are added for each full year past
+ * that threshold, capped at `customGrowth.cap` (never dropping below the
+ * threshold's own days, even if cap is misconfigured below it).
+ *
  * @param {number}  milestoneMonths
  * @param {string}  ruleType        'labor' | 'custom'
  * @param {Array}   customRules     [{months, days}] sorted ascending
+ * @param {{perYear: number, cap: number}} [customGrowth]
  */
-export function getDaysForMilestone(milestoneMonths, ruleType, customRules) {
+export function getDaysForMilestone(milestoneMonths, ruleType, customRules, customGrowth = NO_CUSTOM_GROWTH) {
   if (ruleType === 'custom') {
-    // Walk backwards through sorted rules to find the highest threshold ≤ milestone.
-    const sorted = [...customRules].sort((a, b) => a.months - b.months);
+    // Only consider rules whose months value is a valid threshold -- the
+    // same filter as normalizeCustomThresholds. Without this, a row mid-edit
+    // (e.g. months cleared to 0) would still contribute its days here even
+    // though getMilestones() already ignores it, and a months value beyond
+    // MAX_MILESTONE_MONTHS would silently become the growth anchor below.
+    const validRules = (customRules ?? [])
+      .map(r => ({ months: Number(r?.months), days: Number(r?.days) }))
+      .filter(r => Number.isInteger(r.months) && r.months >= 1 && r.months <= MAX_MILESTONE_MONTHS)
+      .sort((a, b) => a.months - b.months);
+
+    // Walk through valid rules to find the highest threshold ≤ milestone.
     let days = 0;
-    for (const rule of sorted) {
+    for (const rule of validRules) {
       if (rule.months <= milestoneMonths) {
         days = rule.days;
       } else {
         break;
       }
+    }
+    if (validRules.length === 0) return days;
+
+    // Growth only kicks in past the *last* (highest) valid threshold overall
+    // -- not past whichever earlier threshold happens to apply to this
+    // particular milestone. A milestone between two thresholds still just
+    // gets that lower threshold's own days (D1), with no growth involved.
+    const lastRule = validRules[validRules.length - 1];
+    const { perYear, cap } = normalizeCustomGrowth(customGrowth);
+    if (perYear > 0 && milestoneMonths > lastRule.months) {
+      const k = Math.floor((milestoneMonths - lastRule.months) / 12);
+      return Math.min(lastRule.days + perYear * k, Math.max(cap, lastRule.days));
     }
     return days;
   }
@@ -142,25 +206,36 @@ export function getDaysForMilestone(milestoneMonths, ruleType, customRules) {
 /**
  * Return the sorted list of milestone-month values relevant to the given
  * settings, extended to cover at least `upToMonths`.
+ *
+ * For custom rules, thresholds are first de-duplicated and clamped to
+ * [1, MAX_MILESTONE_MONTHS]. Between any two consecutive thresholds, a new
+ * period is cut every 12 months counting forward from the earlier one, so no
+ * custom period ever exceeds a year. Any sub-year remainder therefore sits
+ * just before the next threshold, and that remainder still gets the full-year
+ * entitlement of the threshold it falls under -- it is not prorated.
  */
 export function getMilestones(ruleType, customRules, upToMonths = 360) {
-  if (ruleType === 'custom') {
-    const base = [...customRules]
-      .map(r => r.months)
-      .sort((a, b) => a - b);
+  if (ruleType !== 'custom') return buildLaborLawMilestones(upToMonths);
 
-    if (base.length === 0) return [6]; // fallback
+  const thresholds = normalizeCustomThresholds(customRules);
+  if (thresholds.length === 0) return [6]; // fallback
 
-    // Extend with annual repeats of the last interval
-    let last = base[base.length - 1];
-    let m = last + 12;
-    while (m <= upToMonths + 12) {
-      base.push(m);
-      m += 12;
+  const milestones = [];
+  thresholds.forEach((current, i) => {
+    const next = thresholds[i + 1];
+    if (next === undefined) {
+      milestones.push(current);
+      for (let m = current + 12; m <= upToMonths + 12; m += 12) milestones.push(m);
+    } else {
+      // Cut a new period every 12 months counting forward from this
+      // threshold, so no period between two thresholds exceeds a year (#19).
+      // Any sub-year remainder therefore sits just before `next`, and that
+      // remainder still gets the full-year entitlement of `current` (not
+      // prorated) -- this is intentional, see the design doc (D1).
+      for (let m = current; m < next; m += 12) milestones.push(m);
     }
-    return base;
-  }
-  return buildLaborLawMilestones(upToMonths);
+  });
+  return milestones;
 }
 
 // ─── Period helpers ───────────────────────────────────────────────────────────
@@ -175,7 +250,7 @@ export function getMilestones(ruleType, customRules, upToMonths = 360) {
  *   entitledDays: number,
  * }}
  */
-export function getPeriodInfo(onboardDate, milestoneMonths, ruleType, customRules) {
+export function getPeriodInfo(onboardDate, milestoneMonths, ruleType, customRules, customGrowth = NO_CUSTOM_GROWTH) {
   const allMilestones = getMilestones(ruleType, customRules, milestoneMonths + 24);
   const idx = allMilestones.indexOf(milestoneMonths);
 
@@ -198,7 +273,7 @@ export function getPeriodInfo(onboardDate, milestoneMonths, ruleType, customRule
     nextMilestoneMonths,
     periodStart,
     periodEnd,
-    entitledDays: getDaysForMilestone(milestoneMonths, ruleType, customRules),
+    entitledDays: getDaysForMilestone(milestoneMonths, ruleType, customRules, customGrowth),
   };
 }
 
@@ -206,7 +281,7 @@ export function getPeriodInfo(onboardDate, milestoneMonths, ruleType, customRule
  * Find the period that contains `date`.
  * Returns null if `date` is before the first milestone.
  */
-export function getPeriodContainingDate(onboardDate, date, ruleType, customRules) {
+export function getPeriodContainingDate(onboardDate, date, ruleType, customRules, customGrowth = NO_CUSTOM_GROWTH) {
   const completedMonths = getCompletedMonths(onboardDate, date);
   const milestones = getMilestones(ruleType, customRules, completedMonths + 12);
 
@@ -221,7 +296,7 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
   }
 
   if (currentMilestone === null) return null;
-  return getPeriodInfo(onboardDate, currentMilestone, ruleType, customRules);
+  return getPeriodInfo(onboardDate, currentMilestone, ruleType, customRules, customGrowth);
 }
 
 // ─── Leave-record helpers ────────────────────────────────────────────────────
@@ -230,6 +305,9 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
  * Expand a leave record's startDate + days into the list of calendar dates
  * it actually spans, skipping Saturdays and Sundays. Each weekday consumes
  * 1 unit of `days`; a fractional trailing day still counts as a spanned date.
+ *
+ * Only Saturdays/Sundays are skipped -- national holidays and their
+ * compensatory workdays (補班日) are not taken into account (#33).
  */
 export function getLeaveRecordDates(startDate, days) {
   const start = typeof startDate === 'string' ? parseLocalDate(startDate) : startDate;
@@ -283,7 +361,7 @@ export function getLeaveTakenInPeriod(records, periodStart, periodEnd) {
  *   carryIn, entitledDays, taken, oldEnd, newEnd, settlement, carryOut,
  * }>}
  */
-export function computePeriodLedger(onboardDate, ruleType, customRules, records, asOfDate, allowCarryover) {
+export function computePeriodLedger(onboardDate, ruleType, customRules, records, asOfDate, allowCarryover, customGrowth = NO_CUSTOM_GROWTH) {
   const completedMonths = getCompletedMonths(onboardDate, asOfDate);
   const milestones = getMilestones(ruleType, customRules, completedMonths + 12);
   const chainMilestones = milestones.filter(m => m <= completedMonths);
@@ -291,7 +369,7 @@ export function computePeriodLedger(onboardDate, ruleType, customRules, records,
 
   const ledger = [];
   for (const milestoneMonths of chainMilestones) {
-    const period = getPeriodInfo(onboardDate, milestoneMonths, ruleType, customRules);
+    const period = getPeriodInfo(onboardDate, milestoneMonths, ruleType, customRules, customGrowth);
     const entitledDays = period.entitledDays;
     const taken = getLeaveTakenInPeriod(records, period.periodStart, period.periodEnd);
 
@@ -339,7 +417,8 @@ export function computePeriodLedger(onboardDate, ruleType, customRules, records,
  * @returns {{ valid: true } | { valid: false, invalidPeriod: object, shortfall: number }}
  */
 export function validateRecordsChain(settings, recordsAfterChange, asOfDate) {
-  const { onboardDate, ruleType, customRules, allowCarryover } = settings;
+  const { onboardDate, ruleType, customRules, allowCarryover, customGrowth } = settings;
+  const growth = ruleType === 'custom' ? customGrowth : NO_CUSTOM_GROWTH;
   const onboard = parseLocalDate(onboardDate);
 
   const latestRecordDate = recordsAfterChange.reduce(
@@ -347,12 +426,12 @@ export function validateRecordsChain(settings, recordsAfterChange, asOfDate) {
     asOfDate
   );
 
-  const ledger = computePeriodLedger(onboard, ruleType, customRules, recordsAfterChange, latestRecordDate, allowCarryover);
+  const ledger = computePeriodLedger(onboard, ruleType, customRules, recordsAfterChange, latestRecordDate, allowCarryover, growth);
 
   for (const entry of ledger) {
     if (allowCarryover) {
       const availableTotal = entry.carryIn + entry.entitledDays - entry.taken;
-      const nextEntitled = getDaysForMilestone(entry.nextMilestoneMonths, ruleType, customRules);
+      const nextEntitled = getDaysForMilestone(entry.nextMilestoneMonths, ruleType, customRules, growth);
       if (availableTotal < -nextEntitled) {
         return { valid: false, invalidPeriod: entry, shortfall: -nextEntitled - availableTotal };
       }
@@ -383,13 +462,25 @@ export function validateRecordsChain(settings, recordsAfterChange, asOfDate) {
  * }
  */
 export function calculateSummary(settings, records, today = new Date()) {
-  const { onboardDate, ruleType, customRules, allowCarryover } = settings;
+  const { onboardDate, ruleType, customRules, allowCarryover, customGrowth } = settings;
+  const growth = ruleType === 'custom' ? customGrowth : NO_CUSTOM_GROWTH;
   if (!onboardDate) {
     return { hasLeave: false, message: '請先在設定中填寫到職日。', periods: [] };
   }
 
+  // Settings saved before #21 was fixed can hold a custom rule set with no
+  // usable thresholds. The settings page is locked by then, so explain the
+  // only way out instead of showing a frozen 0-day period.
+  if (ruleType === 'custom' && normalizeCustomThresholds(customRules).length === 0) {
+    return {
+      hasLeave: false,
+      message: '自訂規則沒有任何有效的年資門檻，無法計算特休。請至設定頁使用「離職重來」重新設定。',
+      periods: [],
+    };
+  }
+
   const onboard = parseLocalDate(onboardDate);
-  const ledger = computePeriodLedger(onboard, ruleType, customRules, records, today, allowCarryover);
+  const ledger = computePeriodLedger(onboard, ruleType, customRules, records, today, allowCarryover, growth);
 
   if (ledger.length === 0) {
     const firstMilestone = getMilestones(ruleType, customRules, 12)[0];
@@ -430,21 +521,79 @@ export function formatPeriodLabel(periodStart, periodEnd) {
 
 // ─── Compliance check ─────────────────────────────────────────────────────────
 
+/** getLaborLawDays() first reaches its 30-day cap at 288 months (24 years). */
+const LABOR_LAW_CAP_MONTHS = 288;
+
 /**
- * Check if any custom rule gives fewer days than the labor law minimum
- * for the same tenure threshold.
+ * Check whether the custom rules (with growth) ever give fewer days than the
+ * labor law minimum, at any point in time.
  *
- * Returns an array of warning objects.
+ * Compares custom vs. labor-law entitlement at every checkpoint in the union
+ * of the labor-law milestone points and the custom milestone points (their
+ * entitlements only change at these points, so checking the union is
+ * equivalent to checking every point in time). Checkpoints below the labor
+ * law's own minimum tenure (legalMin === 0) are skipped. Consecutive
+ * deficient checkpoints merge into a single range; non-adjacent ranges stay
+ * separate.
+ *
+ * The comparison horizon is bounded by MAX_MILESTONE_MONTHS. `untilMonths:
+ * null` on the last range therefore means "still deficient at the horizon",
+ * not a mathematical proof that it stays deficient forever.
+ *
+ * @returns {Array<{
+ *   fromMonths, untilMonths: number | null,
+ *   customDaysMin, customDaysMax, legalDaysMin, legalDaysMax,
+ * }>}
  */
-export function checkLaborLawCompliance(customRules) {
-  return customRules
-    .filter(rule => {
-      const legalMin = getLaborLawDays(rule.months);
-      return legalMin > 0 && rule.days < legalMin;
-    })
-    .map(rule => ({
-      months: rule.months,
-      customDays: rule.days,
-      legalMinimum: getLaborLawDays(rule.months),
-    }));
+export function checkLaborLawCompliance(customRules, customGrowth = NO_CUSTOM_GROWTH) {
+  const thresholds = normalizeCustomThresholds(customRules);
+  if (thresholds.length === 0) return [];
+
+  const { perYear, cap } = normalizeCustomGrowth(customGrowth);
+  const lastThreshold = thresholds[thresholds.length - 1];
+  const lastDays = getDaysForMilestone(lastThreshold, 'custom', customRules);
+
+  let stableAt = lastThreshold;
+  if (perYear > 0 && cap > lastDays) {
+    stableAt = lastThreshold + 12 * Math.ceil((cap - lastDays) / perYear);
+  }
+  const horizon = Math.min(MAX_MILESTONE_MONTHS, Math.max(LABOR_LAW_CAP_MONTHS, stableAt) + 12);
+
+  const checkpoints = [...new Set([
+    ...getMilestones('labor', [], horizon),
+    ...getMilestones('custom', customRules, horizon),
+  ])]
+    .filter(m => m <= horizon)
+    .sort((a, b) => a - b);
+
+  const warnings = [];
+  let current = null;
+
+  for (const m of checkpoints) {
+    const legal = getLaborLawDays(m);
+    if (legal === 0) continue;
+
+    const custom = getDaysForMilestone(m, 'custom', customRules, customGrowth);
+    if (custom < legal) {
+      if (current === null) {
+        current = {
+          fromMonths: m, untilMonths: null,
+          customDaysMin: custom, customDaysMax: custom,
+          legalDaysMin: legal, legalDaysMax: legal,
+        };
+      } else {
+        current.customDaysMin = Math.min(current.customDaysMin, custom);
+        current.customDaysMax = Math.max(current.customDaysMax, custom);
+        current.legalDaysMin = Math.min(current.legalDaysMin, legal);
+        current.legalDaysMax = Math.max(current.legalDaysMax, legal);
+      }
+    } else if (current !== null) {
+      current.untilMonths = m;
+      warnings.push(current);
+      current = null;
+    }
+  }
+  if (current !== null) warnings.push(current);
+
+  return warnings;
 }

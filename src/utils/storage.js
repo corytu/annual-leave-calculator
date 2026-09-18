@@ -26,6 +26,11 @@ export const DEFAULT_SETTINGS = {
   customRules: [],
   /** Whether unused leave from the previous period carries over */
   allowCarryover: false,
+  /**
+   * Growth applied per year past the last custom threshold – only used when
+   * ruleType === 'custom'. { perYear: 0, cap: 0 } means "no further growth".
+   */
+  customGrowth: { perYear: 0, cap: 0 },
 };
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
@@ -34,7 +39,14 @@ export function loadSettings() {
   try {
     const raw = localStorage.getItem(KEYS.settings);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      // A shallow spread would let a partial (or absent) stored customGrowth
+      // wholesale-overwrite the default, dropping whichever key it omits.
+      customGrowth: { ...DEFAULT_SETTINGS.customGrowth, ...(parsed.customGrowth ?? {}) },
+    };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

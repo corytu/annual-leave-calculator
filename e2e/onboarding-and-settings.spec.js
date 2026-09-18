@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime } from './helpers.js'
+import { freezeTime, seedAppStorage } from './helpers.js'
 
 test.describe('首次使用與設定流程', () => {
   test.beforeEach(async ({ page }) => {
@@ -60,18 +60,106 @@ test.describe('特休規則設定', () => {
     const row = page.locator('table tbody tr').filter({ has: page.locator('input[value="12"]') })
     await row.locator('input[step="0.25"]').fill('5')
 
-    await expect(page.getByText('以下規則低於勞基法最低標準')).toBeVisible()
-    await expect(page.getByText('滿 12 個月：您設定 5 天，勞基法最低 7 天')).toBeVisible()
+    await expect(page.getByText('以下年資區間的天數低於勞基法最低標準')).toBeVisible()
+    await expect(page.getByText('滿 12 個月至未滿 24 個月：您的規則 5 天，勞基法最低 7 天')).toBeVisible()
+  })
+
+  test('沒有成長設定時顯示滿 132 個月起的開放式不合規警告', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    await page.getByLabel('每年增加天數').fill('0')
+
+    // No growth past the last threshold (120mo, 16 days): stays deficient
+    // forever once labor law climbs from 17 (132mo) up to its 30-day cap
+    // (288mo) and plateaus there through the comparison horizon.
+    await expect(page.getByText('滿 132 個月起：您的規則 16 天，勞基法最低 17～30 天')).toBeVisible()
+  })
+
+  test('第一個自訂門檻晚於 6 個月時顯示缺口', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const sixMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    await sixMonthRow.getByRole('button', { name: '刪除此規則' }).click()
+
+    // Below the (now first) 12mo threshold, custom gives 0 days while labor
+    // law's 6mo minimum is 3.
+    await expect(page.getByText('滿 6 個月至未滿 12 個月：您的規則 0 天，勞基法最低 3 天')).toBeVisible()
+  })
+
+  test('兩段不相鄰的缺口同時顯示為獨立項目', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const sixMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    await sixMonthRow.locator('input[step="0.25"]').fill('1')
+    const twentyFourMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="24"]') })
+    await twentyFourMonthRow.locator('input[step="0.25"]').fill('5')
+
+    await expect(page.getByText('滿 6 個月至未滿 12 個月：您的規則 1 天，勞基法最低 3 天')).toBeVisible()
+    await expect(page.getByText('滿 24 個月至未滿 36 個月：您的規則 5 天，勞基法最低 10 天')).toBeVisible()
   })
 
   test('刪除自訂規則後列表更新', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
-    const rows = page.locator('table tbody tr')
+    const rows = page.getByTestId('custom-rule-row')
     const before = await rows.count()
 
     await rows.first().getByRole('button', { name: '刪除此規則' }).click()
 
     await expect(rows).toHaveCount(before - 1)
+  })
+
+  test('自訂門檻重複時無法儲存並顯示明確錯誤', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // The default rows include a 12-month threshold; retarget the 6-month
+    // row's threshold to 12 so two rows now share the same months value.
+    const row = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    await row.locator('input[step="1"]').fill('12')
+
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('年資門檻「12 個月」重複，請合併或刪除其中一列')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('自訂規則只剩一列時刪除按鈕為 disabled', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const rows = page.getByTestId('custom-rule-row')
+    let count = await rows.count()
+    while (count > 1) {
+      await rows.first().getByRole('button', { name: '刪除此規則' }).click()
+      count = await rows.count()
+    }
+
+    await expect(rows).toHaveCount(1)
+    await expect(rows.first().getByRole('button', { name: '刪除此規則' })).toBeDisabled()
+  })
+
+  test('年資門檻超過安全上限時無法儲存', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const row = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    await row.locator('input[step="1"]').fill('1201')
+
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('年資門檻請填寫 1200 個月（100 年）以內的正整數')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
 
   test('每年可休天數輸入框：可以逐字元打出完整的小數（不會在打出小數點時被吃掉）', async ({ page }) => {
@@ -124,5 +212,153 @@ test.describe('特休規則設定', () => {
     await page.getByRole('button', { name: '儲存設定' }).click()
 
     await expect(page.getByTestId('summary-entitled')).toContainText('20')
+  })
+
+  test('成長列顯示滿最後一列門檻加 12 個月起的文字，且門檻隨最後一列月數更新', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Default custom rules' last threshold is 120 months -> 120 + 12 = 132.
+    // Growth defaults to perYear 1 / cap 30 for a brand-new setup (D8).
+    await expect(page.getByTestId('custom-growth-row')).toContainText('滿 132 個月起')
+    await expect(page.getByLabel('每年增加天數')).toHaveValue('1')
+    await expect(page.getByLabel('天數上限')).toHaveValue('30')
+    // No delete affordance on the growth row -- it's not a removable rule.
+    await expect(page.getByTestId('custom-growth-row').getByRole('button', { name: '刪除此規則' })).toHaveCount(0)
+
+    // Retarget the last (120mo) row's threshold to 96 -> growth row follows to 96 + 12 = 108.
+    const lastRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="120"]') })
+    await lastRow.locator('input[step="1"]').fill('96')
+    await expect(page.getByTestId('custom-growth-row')).toContainText('滿 108 個月起')
+  })
+
+  test('新增規則後成長列門檻跟著更新', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // addCustomRule() appends 12 months past the current last row (120 -> 132),
+    // so the growth row's threshold follows it to 132 + 12 = 144.
+    await page.getByRole('button', { name: '新增規則' }).click()
+    await expect(page.getByTestId('custom-growth-row')).toContainText('滿 144 個月起')
+  })
+
+  test('每年增加天數為 0 時，上限欄位停用', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    await page.getByLabel('每年增加天數').fill('0')
+
+    await expect(page.getByLabel('天數上限')).toBeDisabled()
+  })
+
+  test('每年增加天數留空時無法儲存並顯示錯誤', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    await page.getByLabel('每年增加天數').fill('')
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('每年增加天數請填寫大於等於 0、且為 0.25 的倍數的數字')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('天數上限低於最後一列天數時無法儲存並顯示錯誤', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Default growth per-year is prefilled at 1; last row's days is 16.
+    await page.getByLabel('天數上限').fill('10')
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('天數上限不可低於最後一列的天數（16 天）')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('天數上限非 0.25 倍數時無法儲存並顯示錯誤', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    await page.getByLabel('天數上限').fill('20.1')
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe('天數上限請填寫 0.25 的倍數')
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('成長設定儲存後首頁天數套用逐年成長', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Default growth (perYear 1, cap 30) is prefilled; keep it as-is.
+    // Onboard 2014-06-15 -> frozen "today" 2025-06-15 is exactly 132 completed
+    // months -> milestone 132, 12 months past the last threshold (120, 16
+    // days) -> 16 + 1*1 = 17.
+    await page.locator('input[type="date"]').fill('2014-06-15')
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    await expect(page.getByTestId('summary-entitled')).toContainText('17')
+  })
+
+  test('公司另有規定使用預設門檻時，滿 4 年後仍是 12 個月一期', async ({ page }) => {
+    // Driven through the UI rather than seeded: the default thresholds are
+    // defined in Settings.jsx (DEFAULT_CUSTOM_RULES), so seeding them here
+    // would just be a copy that silently drifts if that default ever changes.
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Onboard date 2021-06-15, frozen "today" 2025-06-15 -> exactly 48
+    // completed months -> milestone 48 (14 days, gap-filled from the 36-month
+    // rule), period 2025-06-15 ~ 2026-06-14 (12 months, not the pre-fix
+    // 2024-06-15 ~ 2026-06-14 span across milestone 36).
+    await page.locator('input[type="date"]').fill('2021-06-15')
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    await expect(page.getByTestId('period-range')).toContainText('2025-06-15')
+    await expect(page.getByTestId('period-range')).toContainText('2026-06-14')
+    await expect(page.getByTestId('summary-entitled')).toContainText('14')
+    await expect(page.getByTestId('period-tabs').getByRole('button')).toHaveCount(5)
+    await expect(page.getByTestId('period-tabs').getByRole('button').first()).toHaveText('2025–26')
+  })
+})
+
+// A separate top-level describe on purpose: '特休規則設定' navigates
+// straight to the settings page in its beforeEach with no seeded settings
+// (that describe's own comment says so), so seedAppStorage() called inside
+// one of its tests would run too late for page.addInitScript() to take
+// effect, and the page wouldn't even be on '/' to read summary-* from.
+// This test needs its own explicit freeze -> seed -> navigate order instead.
+test.describe('既有資料相容性（#19 切點重新分配）', () => {
+  test('既有請假記錄因切點重新分配而超支時，首頁仍正常顯示且不拋錯', async ({ page }) => {
+    await freezeTime(page, '2022-03-01T03:00:00')
+    await seedAppStorage(page, {
+      settings: {
+        onboardDate: '2020-01-01',
+        ruleType: 'custom',
+        customRules: [
+          { id: 'c1', months: 6, days: 3 },
+          { id: 'c2', months: 12, days: 7 },
+          { id: 'c3', months: 30, days: 14 },
+        ],
+        allowCarryover: false,
+      },
+      records: [{ id: 'r1', startDate: '2022-02-01', days: 10 }],
+    })
+    await page.goto('/')
+
+    await expect(page.getByTestId('summary-entitled')).toBeVisible()
+    await expect(page.getByTestId('summary-remaining')).toContainText('-3')
   })
 })

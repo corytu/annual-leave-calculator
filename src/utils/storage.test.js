@@ -30,6 +30,16 @@ describe('loadSettings', () => {
     localStorage.setItem('leaveCalculator_settings', '{not valid json')
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS)
   })
+
+  it('backfills a missing customGrowth field from settings saved before this feature existed', () => {
+    localStorage.setItem('leaveCalculator_settings', JSON.stringify({ onboardDate: '2024-01-01' }))
+    expect(loadSettings().customGrowth).toEqual({ perYear: 0, cap: 0 })
+  })
+
+  it('deep-merges a partial customGrowth object instead of overwriting it wholesale', () => {
+    localStorage.setItem('leaveCalculator_settings', JSON.stringify({ customGrowth: { perYear: 1 } }))
+    expect(loadSettings().customGrowth).toEqual({ perYear: 1, cap: 0 })
+  })
 })
 
 describe('saveSettings -> loadSettings round trip', () => {
@@ -39,6 +49,19 @@ describe('saveSettings -> loadSettings round trip', () => {
       ruleType: 'custom',
       customRules: [{ id: 'a', months: 6, days: 3 }],
       allowCarryover: true,
+      customGrowth: { perYear: 0, cap: 0 },
+    }
+    saveSettings(settings)
+    expect(loadSettings()).toEqual(settings)
+  })
+
+  it('persists and reloads a fully-specified customGrowth', () => {
+    const settings = {
+      onboardDate: '2022-03-10',
+      ruleType: 'custom',
+      customRules: [{ id: 'a', months: 6, days: 3 }],
+      allowCarryover: true,
+      customGrowth: { perYear: 2, cap: 25 },
     }
     saveSettings(settings)
     expect(loadSettings()).toEqual(settings)

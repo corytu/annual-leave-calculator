@@ -93,6 +93,10 @@ export default function MainPage({
   }
 
   function handleSelectPeriod(milestoneMonths) {
+    // Re-selecting the current tab must be a no-op. Clearing editingRecord
+    // here without remounting LeaveForm would leave the old values in an
+    // "add" form, and submitting it would duplicate the record.
+    if (milestoneMonths === activePeriod.milestoneMonths) return
     setSelectedMilestone(milestoneMonths)
     setEditingRecord(null)
     setSelectedDate(null)
@@ -142,7 +146,7 @@ export default function MainPage({
       )}
 
       {/* ── Period info bar ─────────────────────────────────────────────── */}
-      <div className="text-xs text-stone-400 text-center">
+      <div data-testid="period-range" className="text-xs text-stone-400 text-center">
         本年度週年制區間：
         <span className="text-stone-600 font-medium">
           {toISODateString(activePeriod.periodStart)}
@@ -171,9 +175,15 @@ export default function MainPage({
         <div className="px-5 py-3 border-b border-stone-100 bg-stone-50">
           <h2 className="text-sm font-semibold text-stone-700">月曆</h2>
           <p className="text-xs text-stone-400 mt-0.5">點擊日期快速新增請假記錄</p>
+          <p data-testid="calendar-holiday-note" className="text-xs text-stone-400">
+            圓點只跳過週六日，未考慮國定假日與補班日
+          </p>
         </div>
         <div className="p-4">
           <LeaveCalendar
+            // react-calendar only reads defaultActiveStartDate at mount, so a
+            // period switch needs a fresh instance to reset which month it shows.
+            key={activePeriod.milestoneMonths}
             periodStart={activePeriod.periodStart}
             periodEnd={activePeriod.periodEnd}
             records={activePeriodRecords}
@@ -190,6 +200,7 @@ export default function MainPage({
         </div>
         <div className="p-4">
           <LeaveForm
+            key={activePeriod.milestoneMonths}
             settings={settings}
             periodStart={activePeriod.periodStart}
             periodEnd={activePeriod.periodEnd}

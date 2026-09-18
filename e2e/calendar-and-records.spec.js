@@ -141,6 +141,12 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
 
     await expect(daysInput).toHaveValue('4.75')
   })
+
+  test('月曆說明揭露圓點未考慮國定假日與補班日', async ({ page }) => {
+    // Only match the keyword, not the full sentence, so a copy tweak doesn't
+    // break this test.
+    await expect(page.getByTestId('calendar-holiday-note')).toContainText('國定假日')
+  })
 })
 
 test.describe('資料持久化', () => {

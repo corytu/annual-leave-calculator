@@ -16,6 +16,7 @@ import {
   calculateSummary,
   formatPeriodLabel,
   checkLaborLawCompliance,
+  NO_CUSTOM_GROWTH,
 } from './leaveCalculations.js'
 
 // Small helper so test cases read like dates, not Date(y, m-1, d) noise.
@@ -108,6 +109,11 @@ describe('getLaborLawDays', () => {
   it('caps at 30 days and stays there beyond the cap (360 months)', () => {
     expect(getLaborLawDays(360)).toBe(30)
   })
+
+  it('first reaches the 30-day cap at 288 months (24 years)', () => {
+    expect(getLaborLawDays(287)).toBe(29)
+    expect(getLaborLawDays(288)).toBe(30)
+  })
 })
 
 describe('getMilestones (labor law extension covers upToMonths)', () => {
@@ -133,6 +139,61 @@ describe('getMilestones (labor law extension covers upToMonths)', () => {
   })
 })
 
+// Mirrors Settings.jsx's DEFAULT_CUSTOM_RULES thresholds/days exactly, so tests
+// that rely on "the default custom rule set" stay in sync with the UI default.
+const DEFAULT_CUSTOM_RULE_SET = [
+  { months: 6,   days: 3  },
+  { months: 12,  days: 7  },
+  { months: 24,  days: 10 },
+  { months: 36,  days: 14 },
+  { months: 60,  days: 15 },
+  { months: 120, days: 16 },
+]
+
+describe('getMilestones (custom rules yearly grid)', () => {
+  it('produces the same milestones as labor law for the default custom thresholds', () => {
+    const customMilestones = getMilestones('custom', DEFAULT_CUSTOM_RULE_SET, 200)
+    const laborMilestones = getMilestones('labor', [], 200)
+    expect(customMilestones).toEqual(laborMilestones)
+  })
+
+  it('fills yearly cut points forward from each threshold, leaving any short remainder just before the next threshold', () => {
+    const custom = [{ months: 6, days: 3 }, { months: 12, days: 7 }, { months: 30, days: 14 }]
+    const milestones = getMilestones('custom', custom, 50)
+    expect(milestones.slice(0, 5)).toEqual([6, 12, 24, 30, 42])
+  })
+
+  it('never produces a gap longer than 12 months between consecutive milestones', () => {
+    const custom = [{ months: 3, days: 1 }, { months: 17, days: 5 }, { months: 45, days: 10 }]
+    const milestones = getMilestones('custom', custom, 100)
+    for (let i = 1; i < milestones.length; i++) {
+      expect(milestones[i] - milestones[i - 1]).toBeLessThanOrEqual(12)
+    }
+  })
+
+  it('deduplicates repeated thresholds', () => {
+    const withDupe = [{ months: 12, days: 5 }, { months: 12, days: 7 }, { months: 24, days: 10 }]
+    const withoutDupe = [{ months: 12, days: 5 }, { months: 24, days: 10 }]
+    expect(getMilestones('custom', withDupe, 30)).toEqual(getMilestones('custom', withoutDupe, 30))
+  })
+
+  it('ignores thresholds that are not positive integers', () => {
+    const messy = [
+      { months: 0, days: 1 },
+      { months: -5, days: 1 },
+      { months: 1.5, days: 1 },
+      { months: 'abc', days: 1 },
+      { months: 12, days: 5 },
+    ]
+    expect(getMilestones('custom', messy, 30)).toEqual(getMilestones('custom', [{ months: 12, days: 5 }], 30))
+  })
+
+  it('ignores thresholds beyond the sanity ceiling and does not hang on a huge gap', () => {
+    const huge = [{ months: 12, days: 5 }, { months: 999999999, days: 30 }]
+    expect(getMilestones('custom', huge, 30)).toEqual(getMilestones('custom', [{ months: 12, days: 5 }], 30))
+  })
+})
+
 describe('getDaysForMilestone', () => {
   it('delegates to labor law days for ruleType "labor"', () => {
     expect(getDaysForMilestone(24, 'labor', [])).toBe(getLaborLawDays(24))
@@ -155,6 +216,75 @@ describe('getDaysForMilestone', () => {
   it('returns 0 for custom rules below the lowest threshold', () => {
     expect(getDaysForMilestone(3, 'custom', custom)).toBe(0)
   })
+
+  it('gives a gap-filled milestone the days of the highest threshold at or below it', () => {
+    expect(getDaysForMilestone(48, 'custom', DEFAULT_CUSTOM_RULE_SET)).toBe(14)
+    expect(getDaysForMilestone(72, 'custom', DEFAULT_CUSTOM_RULE_SET)).toBe(15)
+  })
+
+  describe('customGrowth', () => {
+    it('applies no growth by default (NO_CUSTOM_GROWTH), even past the last threshold', () => {
+      expect(getDaysForMilestone(240, 'custom', DEFAULT_CUSTOM_RULE_SET)).toBe(16)
+      expect(getDaysForMilestone(240, 'custom', DEFAULT_CUSTOM_RULE_SET, NO_CUSTOM_GROWTH)).toBe(16)
+    })
+
+    it('adds perYear days for each full year past the last threshold', () => {
+      const growth = { perYear: 1, cap: 30 }
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(17)
+      expect(getDaysForMilestone(144, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(18)
+    })
+
+    it('does not apply growth exactly at the last threshold, only past it', () => {
+      const growth = { perYear: 1, cap: 30 }
+      expect(getDaysForMilestone(120, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(16)
+    })
+
+    it('does not apply growth for a milestone between two earlier thresholds, even past the nearest one', () => {
+      // Milestone 48 sits between the 36mo (14 days) and 60mo (15 days)
+      // thresholds -- growth must not kick in just because 48 > 36; only
+      // milestones past the *last* threshold (120) are eligible.
+      const growth = { perYear: 1, cap: 30 }
+      expect(getDaysForMilestone(48, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(14)
+    })
+
+    it('caps growth at the configured cap', () => {
+      const growth = { perYear: 5, cap: 20 }
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(20)
+    })
+
+    it('never lets a misconfigured cap shrink days below the last threshold', () => {
+      const growth = { perYear: 1, cap: 10 } // cap (10) is below the last threshold's days (16)
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(16)
+    })
+
+    it('coerces a null or malformed customGrowth into no growth instead of throwing', () => {
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, null)).toBe(16)
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, { perYear: 'abc', cap: 'xyz' })).toBe(16)
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, { perYear: -5, cap: -5 })).toBe(16)
+    })
+
+    it('coerces a string days value in customRules into a number for growth math', () => {
+      const custom = [{ months: 12, days: '7' }]
+      const growth = { perYear: 1, cap: 20 }
+      expect(getDaysForMilestone(24, 'custom', custom, growth)).toBe(8) // not '7' + 1 = '71'
+    })
+
+    it('ignores a rule with an invalid months value (e.g. cleared to 0 mid-edit) for the base days', () => {
+      // Same filter as normalizeCustomThresholds: a 0-months row never
+      // becomes a real milestone, so it must not contribute days either.
+      const custom = [{ months: 0, days: 3 }, { months: 12, days: 7 }]
+      expect(getDaysForMilestone(6, 'custom', custom)).toBe(0)
+      expect(getDaysForMilestone(12, 'custom', custom)).toBe(7)
+    })
+
+    it('does not let a threshold beyond MAX_MILESTONE_MONTHS silently become the growth anchor', () => {
+      const custom = [{ months: 12, days: 7 }, { months: 1201, days: 20 }]
+      const growth = { perYear: 1, cap: 30 }
+      // The 1201mo row is dropped, so 12mo (7 days) is the effective last
+      // threshold and growth kicks in past it, not past the invalid 1201mo row.
+      expect(getDaysForMilestone(24, 'custom', custom, growth)).toBe(8)
+    })
+  })
 })
 
 describe('getPeriodInfo', () => {
@@ -170,6 +300,33 @@ describe('getPeriodInfo', () => {
     // 132 is the last known milestone before the +12 extension kicks in during this call
     const info = getPeriodInfo(d('2020-01-01'), 132, 'labor', [])
     expect(info.nextMilestoneMonths).toBe(144)
+  })
+
+  it('spans exactly 12 months at milestone 36 under the default custom thresholds', () => {
+    const info = getPeriodInfo(d('2020-01-01'), 36, 'custom', DEFAULT_CUSTOM_RULE_SET)
+    expect(toISODateString(info.periodStart)).toBe('2023-01-01')
+    expect(info.nextMilestoneMonths).toBe(48)
+    expect(toISODateString(info.periodEnd)).toBe('2023-12-31')
+    expect(info.entitledDays).toBe(14)
+  })
+
+  it('never ends before it starts when custom thresholds are duplicated', () => {
+    const custom = [{ months: 6, days: 1 }, { months: 6, days: 2 }, { months: 12, days: 3 }]
+    const info = getPeriodInfo(d('2020-01-01'), 6, 'custom', custom)
+    expect(info.periodEnd.getTime()).toBeGreaterThanOrEqual(info.periodStart.getTime())
+  })
+
+  it("keeps a short remainder period's days at the threshold it falls under, without proration", () => {
+    const custom = [{ months: 6, days: 3 }, { months: 12, days: 7 }, { months: 30, days: 14 }]
+    const info = getPeriodInfo(d('2020-01-01'), 24, 'custom', custom)
+    expect(toISODateString(info.periodStart)).toBe('2022-01-01')
+    expect(toISODateString(info.periodEnd)).toBe('2022-06-30')
+    expect(info.entitledDays).toBe(7)
+  })
+
+  it('applies customGrowth to entitledDays past the last custom threshold', () => {
+    const info = getPeriodInfo(d('2020-01-01'), 132, 'custom', DEFAULT_CUSTOM_RULE_SET, { perYear: 1, cap: 30 })
+    expect(info.entitledDays).toBe(17)
   })
 })
 
@@ -345,6 +502,35 @@ describe('validateRecordsChain', () => {
       expect(validateRecordsChain(settings, recordsAfterDelete, asOfDate).valid).toBe(true)
     })
   })
+
+  describe('customGrowth affecting the next-period overspend threshold', () => {
+    // Only threshold is 12mo (5 days); milestone 24 is a gap-filled repeat of
+    // it. onboard 2020-01-01 -> milestone 12's period is 2021-01-01~2021-12-31
+    // (the very first period in the chain, so carryIn is always 0 here).
+    const baseSettings = {
+      onboardDate: '2020-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 12, days: 5 }],
+      allowCarryover: true,
+    }
+    const records = [{ startDate: '2021-06-01', days: 12 }]
+    const asOfDate = d('2021-06-15') // still within milestone 12's period
+
+    it('accepts an overspend that only fits within the next period\'s grown entitlement', () => {
+      // availableTotal = 0 + 5 - 12 = -7. Next period (milestone 24) grows to
+      // 5 + 2*floor((24-12)/12) = 5 + 2 = 7 days, so the threshold is -7 --
+      // -7 is exactly at the boundary (allowed).
+      const settings = { ...baseSettings, customGrowth: { perYear: 2, cap: 20 } }
+      expect(validateRecordsChain(settings, records, asOfDate).valid).toBe(true)
+    })
+
+    it('rejects the same overspend when customGrowth is absent (ungrown next-period entitlement)', () => {
+      // Same -7 availableTotal, but the next period's entitlement stays at
+      // the base 5 days with no growth -> threshold -5, and -7 < -5.
+      const settings = { ...baseSettings, customGrowth: { perYear: 0, cap: 0 } }
+      expect(validateRecordsChain(settings, records, asOfDate).valid).toBe(false)
+    })
+  })
 })
 
 describe('calculateSummary', () => {
@@ -452,6 +638,86 @@ describe('calculateSummary', () => {
       expect(result.periods[i].periodStart.getTime()).toBeGreaterThan(result.periods[i - 1].periodStart.getTime())
     }
   })
+
+  it('reports hasLeave: false with a reset hint when custom rules have no valid thresholds', () => {
+    const settings = { onboardDate: '2023-06-15', ruleType: 'custom', customRules: [], allowCarryover: false }
+    const result = calculateSummary(settings, [], today)
+    expect(result.hasLeave).toBe(false)
+    expect(result.message).toContain('離職重來')
+    expect(result.periods).toEqual([])
+  })
+
+  it('treats custom rules whose thresholds are all invalid the same as an empty rule set', () => {
+    const settings = {
+      onboardDate: '2023-06-15',
+      ruleType: 'custom',
+      customRules: [{ months: 0, days: 5 }, { months: -1, days: 5 }],
+      allowCarryover: false,
+    }
+    const result = calculateSummary(settings, [], today)
+    expect(result.hasLeave).toBe(false)
+    expect(result.message).toContain('離職重來')
+    expect(result.periods).toEqual([])
+  })
+
+  it('starts a new 12-month period every year under the default custom thresholds', () => {
+    const settings = { onboardDate: '2020-01-01', ruleType: 'custom', customRules: DEFAULT_CUSTOM_RULE_SET, allowCarryover: false }
+    const result = calculateSummary(settings, [], d('2024-01-01'))
+    expect(result.hasLeave).toBe(true)
+    expect(result.periods).toHaveLength(5)
+    const current = result.periods[result.periods.length - 1]
+    expect(current.milestoneMonths).toBe(48)
+    expect(toISODateString(current.periodStart)).toBe('2024-01-01')
+    expect(toISODateString(current.periodEnd)).toBe('2024-12-31')
+    expect(current.entitledDays).toBe(14)
+  })
+
+  it('applies customGrowth entitlement growth to the current period', () => {
+    const settings = {
+      onboardDate: '2010-01-01',
+      ruleType: 'custom',
+      customRules: DEFAULT_CUSTOM_RULE_SET,
+      customGrowth: { perYear: 1, cap: 30 },
+      allowCarryover: false,
+    }
+    // 2010-01-01 -> 2021-01-01 is exactly 132 completed months (11 years).
+    const result = calculateSummary(settings, [], d('2021-01-01'))
+    const current = result.periods[result.periods.length - 1]
+    expect(current.milestoneMonths).toBe(132)
+    expect(current.entitledDays).toBe(17)
+  })
+
+  it('ignores customGrowth entirely for ruleType "labor", even if present in settings', () => {
+    const settings = {
+      onboardDate: '2010-01-01',
+      ruleType: 'labor',
+      customRules: [],
+      customGrowth: { perYear: 100, cap: 9999 },
+      allowCarryover: false,
+    }
+    const result = calculateSummary(settings, [], today)
+    const current = result.periods[result.periods.length - 1]
+    expect(current.entitledDays).toBe(getLaborLawDays(current.milestoneMonths))
+  })
+
+  // Simulates existing localStorage data saved before #19 was fixed with a
+  // looser period-boundary rule: after the fix, this record gets re-gridded
+  // into a shorter period and now looks overspent (D17). This test only
+  // guards against a crash / hasLeave flip, not against the overspend itself.
+  it('does not throw and reports negative remaining when re-gridded periods make a previously-valid record look overspent (#19)', () => {
+    const today = d('2022-03-01')
+    const settings = {
+      onboardDate: '2020-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 6, days: 3 }, { months: 12, days: 7 }, { months: 30, days: 14 }],
+      allowCarryover: false,
+    }
+    const records = [{ startDate: '2022-02-01', days: 10 }]
+    const result = calculateSummary(settings, records, today)
+    expect(result.hasLeave).toBe(true)
+    const current = result.periods.find(p => p.milestoneMonths === 24)
+    expect(current.remaining).toBe(-3)
+  })
 })
 
 describe('formatPeriodLabel', () => {
@@ -465,19 +731,76 @@ describe('formatPeriodLabel', () => {
 })
 
 describe('checkLaborLawCompliance', () => {
-  it('flags custom rules below the labor law minimum', () => {
-    const custom = [{ months: 12, days: 5 }] // labor law min at 12mo is 7
-    const warnings = checkLaborLawCompliance(custom)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toMatchObject({ months: 12, customDays: 5, legalMinimum: 7 })
-  })
-
-  it('does not flag rules that meet or exceed the labor law minimum', () => {
-    const custom = [{ months: 12, days: 7 }, { months: 24, days: 12 }]
-    expect(checkLaborLawCompliance(custom)).toHaveLength(0)
-  })
-
   it('returns an empty array for an empty rule set', () => {
     expect(checkLaborLawCompliance([])).toEqual([])
+  })
+
+  it('reports no warnings for the default custom rules with the default growth (matches labor law exactly)', () => {
+    const growth = { perYear: 1, cap: 30 }
+    expect(checkLaborLawCompliance(DEFAULT_CUSTOM_RULE_SET, growth)).toEqual([])
+  })
+
+  it('reports an open-ended warning starting past the last threshold when there is no growth', () => {
+    const warnings = checkLaborLawCompliance(DEFAULT_CUSTOM_RULE_SET) // no growth arg -> NO_CUSTOM_GROWTH
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].fromMonths).toBe(132)
+    expect(warnings[0].untilMonths).toBeNull()
+  })
+
+  it('reports a deficiency starting before the first custom threshold when it is later than 6 months', () => {
+    const custom = [
+      { months: 12, days: 7 }, { months: 24, days: 10 }, { months: 36, days: 14 },
+      { months: 60, days: 15 }, { months: 120, days: 16 },
+    ]
+    const growth = { perYear: 1, cap: 30 }
+    const warnings = checkLaborLawCompliance(custom, growth)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({
+      fromMonths: 6, untilMonths: 12,
+      customDaysMin: 0, customDaysMax: 0,
+      legalDaysMin: 3, legalDaysMax: 3,
+    })
+  })
+
+  it('merges consecutive deficient checkpoints created by a gap between two custom thresholds into one range with min/max', () => {
+    // Skips the 12mo and 24mo thresholds, so the 6mo threshold's 3 days
+    // carries through several checkpoints (labor's 12/24 plus the custom
+    // gap-fill's own 18/30) while labor law climbs from 7 to 10.
+    const custom = [
+      { months: 6, days: 3 }, { months: 36, days: 14 }, { months: 60, days: 15 }, { months: 120, days: 16 },
+    ]
+    const growth = { perYear: 1, cap: 30 }
+    const warnings = checkLaborLawCompliance(custom, growth)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({
+      fromMonths: 12, untilMonths: 36,
+      customDaysMin: 3, customDaysMax: 3,
+      legalDaysMin: 7, legalDaysMax: 10,
+    })
+  })
+
+  it('reports two non-adjacent deficient ranges as separate entries, not merged', () => {
+    const custom = [
+      { months: 6, days: 1 },  // below the 3-day minimum
+      { months: 12, days: 7 }, // meets the minimum
+      { months: 24, days: 5 }, // below the 10-day minimum
+      { months: 36, days: 14 }, { months: 60, days: 15 }, { months: 120, days: 16 },
+    ]
+    const growth = { perYear: 1, cap: 30 }
+    const warnings = checkLaborLawCompliance(custom, growth)
+    expect(warnings).toHaveLength(2)
+    expect(warnings[0]).toMatchObject({ fromMonths: 6, untilMonths: 12 })
+    expect(warnings[1]).toMatchObject({ fromMonths: 24, untilMonths: 36 })
+  })
+
+  it('clamps the horizon at MAX_MILESTONE_MONTHS instead of hanging when perYear is vanishingly small', () => {
+    const growth = { perYear: 0.001, cap: 30 }
+    const warnings = checkLaborLawCompliance(DEFAULT_CUSTOM_RULE_SET, growth)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].fromMonths).toBe(132)
+    expect(warnings[0].untilMonths).toBeNull() // still deficient at the clamped horizon
+    for (const w of warnings) {
+      expect(w.fromMonths).toBeLessThanOrEqual(1200)
+    }
   })
 })

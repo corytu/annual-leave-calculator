@@ -18,6 +18,11 @@ export function buildBackupCsv(settings, records, summary) {
     for (const rule of settings.customRules) {
       lines.push(`${rule.months},${rule.days}`);
     }
+    const { perYear, cap } = settings.customGrowth ?? { perYear: 0, cap: 0 };
+    lines.push(`之後每年加,${perYear}`);
+    if (perYear > 0) {
+      lines.push(`天數上限,${cap}`);
+    }
   }
   lines.push('');
   lines.push('請假記錄');
