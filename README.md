@@ -124,6 +124,18 @@ npx playwright install --with-deps chromium
 
 專案根目錄的 [`agent-loop.sh`](agent-loop.sh) 是這輪開發過程中用來自動化「Coder ⇄ Reviewer」多輪審查流程的輔助腳本，透過 Claude Code CLI 分別呼叫不同角色互相審查實作計畫與程式碼變更。它與特休計算機本身的功能沒有直接關聯，附在此處是為了讓有興趣的開發者檢閱這輪開發的協作方式，詳見 [docs/README-agent-loop.md](docs/README-agent-loop.md)。
 
+## 貢獻
+
+歡迎回報問題或提出 Pull Request。`master` 分支設有分支保護規則，PR 需符合以下條件才能合併：
+
+- 至少 1 位審查者核准；核准後若再推送新的 commit，先前的核准會被撤銷，須重新取得核准
+- PR 中所有審查討論串（conversation thread）皆已標示為已解決
+- 狀態檢查全數通過：`unit-and-e2e-test`（單元測試 + 端對端測試）、`Analyze (javascript-typescript)`、`Analyze (actions)`（CodeQL 程式碼掃描），且分支需與 `master` 保持同步（strict 檢查）
+- 程式碼涵蓋率（`src/utils/**`）不得低於 90%，且相較基準分支下降不得超過 3 個百分點
+- 僅允許 Merge commit 或 Rebase 方式合併（不提供 Squash）
+
+詳細的開發流程與規範請參考 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## 授權
 
 本專案以 [MIT 授權](LICENSE.txt) 釋出。
