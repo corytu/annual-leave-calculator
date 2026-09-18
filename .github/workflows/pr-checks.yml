@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  code-quality: write
 
 jobs:
   unit-and-e2e-test:
@@ -31,13 +30,12 @@ jobs:
       - name: Run unit tests with coverage (Vitest)
         run: npm run test:coverage
 
-      - name: Upload coverage report
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/upload-code-coverage@v1
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7.1.1
         with:
-          file: coverage/cobertura-coverage.xml
-          language: JavaScript
-          label: code-coverage/vitest
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/cobertura-coverage.xml
+          fail_ci_if_error: false
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
