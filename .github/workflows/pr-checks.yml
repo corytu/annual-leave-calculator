@@ -4,15 +4,21 @@ on:
   pull_request:
     branches:
       - master
+  push:
+    branches:
+      - master
 
 permissions:
   contents: read
+  code-quality: write
 
 jobs:
   unit-and-e2e-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -22,8 +28,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run unit tests (Vitest)
-        run: npm run test
+      - name: Run unit tests with coverage (Vitest)
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage/cobertura-coverage.xml
+          language: JavaScript
+          label: code-coverage/vitest
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
