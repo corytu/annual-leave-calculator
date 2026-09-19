@@ -75,7 +75,7 @@ export default function App() {
               <path d="M16 2v4M8 2v4M3 10h18" />
             </svg>
             <span className="font-semibold text-stone-800 text-base tracking-tight">
-              特休計算器
+              特休計算機
             </span>
           </div>
           <nav className="flex gap-1">
