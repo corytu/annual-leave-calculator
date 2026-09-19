@@ -371,7 +371,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                             disabled={isLocked || customRules.length <= 1}
                             title={customRules.length <= 1 ? '至少需保留一條規則' : undefined}
                             className="text-stone-400 hover:text-red-500 transition-colors
-                                       disabled:opacity-40 disabled:hover:text-stone-400 disabled:cursor-not-allowed"
+                                       disabled:opacity-40 disabled:hover:text-stone-400"
                             aria-label="刪除此規則"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -427,7 +427,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                 disabled={isLocked}
                 className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-900
                            font-medium transition-colors
-                           disabled:opacity-40 disabled:hover:text-teal-700 disabled:cursor-not-allowed"
+                           disabled:opacity-40 disabled:hover:text-teal-700"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -502,7 +502,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
           className="px-5 py-2 text-red-600 text-sm font-medium rounded-md border border-red-200
                      hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400
                      focus:ring-offset-1 transition-colors
-                     disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                     disabled:opacity-40 disabled:hover:bg-transparent"
         >
           離職重來
         </button>
@@ -584,7 +584,7 @@ function RuleTypeCard({ selected, disabled, onClick, title, description }) {
                     ? 'border-teal-600 bg-teal-50'
                     : 'border-stone-200 bg-white hover:border-stone-300'
                   }
-                  ${disabled ? 'opacity-60 cursor-not-allowed hover:border-stone-200' : ''}`}
+                  ${disabled ? 'opacity-60 hover:border-stone-200' : ''}`}
     >
       <div className="flex items-center gap-2 mb-1">
         <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center
