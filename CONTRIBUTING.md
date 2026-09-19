@@ -8,7 +8,7 @@
 
 ## 開發環境設定
 
-詳細環境設定（含 Dev Container）請參考 README 的[本地端開發](README.md#本地端開發)一節。若已具備 Node.js 20+ 與 npm，最快的方式：
+詳細環境設定（含 Dev Container）請參考 README 的[本地端開發](README.md#本地端開發)一節。若已具備 Node.js 22.12+（建議 24，見 [.nvmrc](.nvmrc)）與 npm，最快的方式：
 
 ```shell
 npm ci
