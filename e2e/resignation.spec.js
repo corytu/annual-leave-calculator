@@ -64,6 +64,10 @@ test.describe('離職重來', () => {
     await page.getByRole('button', { name: '前往設定' }).click()
 
     await expect(page.getByRole('button', { name: '離職重來' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '離職重來' })).toHaveCSS('cursor', 'not-allowed')
+    // reverse assertion: enabled controls must not show the forbidden cursor
+    await expect(page.getByRole('button', { name: '儲存設定' })).toHaveCSS('cursor', 'pointer')
+    await expect(page.locator('input[type="date"]')).not.toHaveCSS('cursor', 'not-allowed')
   })
 
   test('儲存後欄位變唯讀，「離職重來」變 enabled', async ({ page }) => {
@@ -72,21 +76,34 @@ test.describe('離職重來', () => {
     await page.getByRole('button', { name: '設定' }).click()
 
     await expect(page.locator('input[type="date"]')).toBeDisabled()
+    await expect(page.locator('input[type="date"]')).toHaveCSS('cursor', 'not-allowed')
     await expect(page.getByRole('button', { name: '按勞基法第38條' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '按勞基法第38條' })).toHaveCSS('cursor', 'not-allowed')
     await expect(page.getByRole('button', { name: '公司另有規定' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '公司另有規定' })).toHaveCSS('cursor', 'not-allowed')
     await expect(page.locator('table tbody tr input[type="number"]').first()).toBeDisabled()
+    await expect(page.locator('table tbody tr input[type="number"]').first()).toHaveCSS('cursor', 'not-allowed')
     await expect(page.locator('table tbody tr input[type="number"]').nth(1)).toBeDisabled()
+    await expect(page.locator('table tbody tr input[type="number"]').nth(1)).toHaveCSS('cursor', 'not-allowed')
     const deleteButtons = page.getByRole('button', { name: '刪除此規則' })
     await expect(deleteButtons).toHaveCount(2)
     for (const btn of await deleteButtons.all()) {
       await expect(btn).toBeDisabled()
+      await expect(btn).toHaveCSS('cursor', 'not-allowed')
     }
     await expect(page.getByLabel('每年增加天數')).toBeDisabled()
+    await expect(page.getByLabel('每年增加天數')).toHaveCSS('cursor', 'not-allowed')
     await expect(page.getByLabel('天數上限')).toBeDisabled()
+    await expect(page.getByLabel('天數上限')).toHaveCSS('cursor', 'not-allowed')
     await expect(page.getByRole('switch')).toBeDisabled()
+    const carryoverLabel = page.getByRole('switch').locator('..')
+    await expect(carryoverLabel).toHaveCSS('cursor', 'not-allowed')
+    await expect(page.getByRole('button', { name: '新增規則' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '新增規則' })).toHaveCSS('cursor', 'not-allowed')
     await expect(page.getByRole('button', { name: '儲存設定' })).not.toBeVisible()
     await expect(page.getByRole('button', { name: '取消' })).not.toBeVisible()
     await expect(page.getByRole('button', { name: '離職重來' })).toBeEnabled()
+    await expect(page.getByRole('button', { name: '離職重來' })).toHaveCSS('cursor', 'pointer')
   })
 
   test('確認彈窗 1 按取消，設定與記錄不變', async ({ page }) => {
