@@ -246,6 +246,8 @@ test.describe('特休規則設定', () => {
     await page.getByLabel('每年增加天數').fill('0')
 
     await expect(page.getByLabel('天數上限')).toBeDisabled()
+    await expect(page.getByLabel('天數上限')).toHaveCSS('cursor', 'not-allowed')
+    await expect(page.getByLabel('每年增加天數')).not.toHaveCSS('cursor', 'not-allowed')
   })
 
   test('每年增加天數留空時無法儲存並顯示錯誤', async ({ page }) => {
