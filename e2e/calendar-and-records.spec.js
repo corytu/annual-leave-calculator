@@ -28,6 +28,8 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     // guessing at visible text formatting.
     const juneFirst = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 1 }), exact: true })
     await expect(juneFirst).toHaveClass(/react-calendar__tile--out-of-period/)
+    await expect(juneFirst).toHaveCSS('cursor', 'not-allowed')
+    await expect(juneFirst).toHaveCSS('pointer-events', 'auto')
 
     await expect(page.locator('.react-calendar__navigation__prev-button')).toHaveCSS('cursor', 'not-allowed')
     // reverse assertion: the next button is still enabled at this point

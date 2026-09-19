@@ -125,11 +125,6 @@
 /* Dates outside the active period */
 .react-calendar__tile--out-of-period {
   color: #d1d5db;
-  /* pointer-events: none is intentional: out-of-period day tiles are native
-     disabled buttons, so the global disabled rule computes cursor: not-allowed
-     for them, but with pointer-events: none that cursor is never shown. Removing
-     this line would make every grey tile show the forbidden cursor. */
-  pointer-events: none;
 }
 
 /* Leave dot indicator */
