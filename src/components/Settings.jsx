@@ -351,7 +351,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                           <div className="flex items-center gap-1.5">
                             <input
                               type="number"
-                              min={0}
+                              min={0.25}
                               step={0.25}
                               value={rule.days}
                               disabled={isLocked}

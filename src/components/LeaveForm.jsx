@@ -111,7 +111,6 @@ export default function LeaveForm({
               <input
                 type="number"
                 min={0.25}
-                max={30}
                 step={0.25}
                 value={days}
                 onChange={e => { setDays(e.target.value); setError('') }}
