@@ -379,6 +379,27 @@ describe('getLeaveTakenInPeriod', () => {
 })
 
 describe('getLeaveRecordDates', () => {
+  it.each([Infinity, -Infinity, NaN, 'Infinity', 'invalid'])('returns no dates for a non-finite day count (%s)', days => {
+    expect(getLeaveRecordDates('2026-09-01', days)).toEqual([])
+  })
+
+  it.each([0, -1])('returns no dates for a non-positive day count (%s)', days => {
+    expect(getLeaveRecordDates('2026-09-01', days)).toEqual([])
+  })
+
+  it('preserves numeric strings and the full 400-day boundary', () => {
+    expect(getLeaveRecordDates('2026-09-01', '1.5')).toEqual(['2026-09-01', '2026-09-02'])
+    expect(getLeaveRecordDates('2026-09-01', 400)).toHaveLength(400)
+  })
+
+  it('caps oversized stored records at 400 rendered weekdays', () => {
+    const dates = getLeaveRecordDates('2026-09-01', 1000)
+    expect(dates).toHaveLength(400)
+    expect(dates[0]).toBe('2026-09-01')
+    expect(new Set(dates).size).toBe(400)
+    expect(dates.every(date => ![0, 6].includes(parseLocalDate(date).getDay()))).toBe(true)
+  })
+
   it('skips the weekend and continues counting into the following week (2026-09-01 is a Tuesday)', () => {
     expect(getLeaveRecordDates('2026-09-01', 5)).toEqual([
       '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-07',

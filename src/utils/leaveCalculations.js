@@ -305,6 +305,8 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
  * Expand a leave record's startDate + days into the list of calendar dates
  * it actually spans, skipping Saturdays and Sundays. Each weekday consumes
  * 1 unit of `days`; a fractional trailing day still counts as a spanned date.
+ * Display expansion is capped at 400 weekdays so corrupt stored records
+ * cannot block the calendar render. This does not change leave accounting.
  *
  * Only Saturdays/Sundays are skipped -- national holidays and their
  * compensatory workdays (補班日) are not taken into account (#33).
@@ -313,8 +315,9 @@ export function getLeaveRecordDates(startDate, days) {
   const start = typeof startDate === 'string' ? parseLocalDate(startDate) : startDate;
   const cursor = new Date(start);
   const dates = [];
-  let remaining = days;
-  while (remaining > 0) {
+  let remaining = Number(days);
+  if (!Number.isFinite(remaining)) return dates;
+  while (remaining > 0 && dates.length < 400) {
     const dow = cursor.getDay();
     if (dow !== 0 && dow !== 6) {
       dates.push(toISODateString(cursor));
