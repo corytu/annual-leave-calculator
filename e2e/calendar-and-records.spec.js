@@ -56,7 +56,7 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     await expect(page.getByTestId('summary-taken')).toContainText('2')
 
     // The calendar tile for the 20th should now show the leave dot.
-    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }), exact: true })
+    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }) + ' 已登記請假', exact: true })
     await expect(tile20.locator('.leave-dot')).toBeVisible()
   })
 
@@ -68,11 +68,11 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
 
     await expect(page.getByText('2025-06-20')).toBeVisible()
 
-    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }), exact: true })
+    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }) + ' 已登記請假', exact: true })
     const tile21 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 21 }), exact: true })
     const tile22 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 22 }), exact: true })
-    const tile23 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 23 }), exact: true })
-    const tile24 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 24 }), exact: true })
+    const tile23 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 23 }) + ' 已登記請假', exact: true })
+    const tile24 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 24 }) + ' 已登記請假', exact: true })
 
     await expect(tile20.locator('.leave-dot')).toBeVisible()
     await expect(tile21.locator('.leave-dot')).toHaveCount(0)

@@ -31,7 +31,12 @@ export default function LeaveCalendar({
     if (view !== 'month') return null
     const iso = toISODateString(date)
     if (leaveDates.has(iso)) {
-      return <span className="leave-dot" aria-hidden="true" />
+      return (
+        <>
+          <span className="leave-dot" aria-hidden="true" />
+          <span className="sr-only">已登記請假</span>
+        </>
+      )
     }
     return null
   }
