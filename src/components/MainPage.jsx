@@ -137,7 +137,7 @@ export default function MainPage({
             )}
             {showSettlementOut && (
               <>
-                <MiniStat testId="summary-settlement" label="已結清未休工資天數" value={`${activePeriod.settlement} 天`} />
+                <MiniStat testId="summary-settlement" label="期末未休結清" value={`${activePeriod.settlement} 天`} />
                 <MiniStat testId="summary-carryout" label="遞延至下一期" value={`${activePeriod.carryOut} 天`} accent />
               </>
             )}
