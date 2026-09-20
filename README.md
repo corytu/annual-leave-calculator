@@ -96,7 +96,8 @@ npx playwright install --with-deps chromium
   1. 安裝相依套件
   2. 注入建置日期（`VITE_BUILD_DATE`）至 `.env.production`
   3. 執行 `npm run build`
-  4. 將 `dist/` 目錄推送至 `gh-pages` 分支
+  4. 將 `dist/` 目錄上傳為 Pages 構件（`actions/upload-pages-artifact`）
+  5. 透過 `actions/deploy-pages` 直接部署至 GitHub Pages（無需再推送至 `gh-pages` 分支）
 
   詳見 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)。
 
@@ -108,7 +109,7 @@ npx playwright install --with-deps chromium
 | 樣式 | Tailwind CSS |
 | 日曆元件 | react-calendar |
 | 資料持久化 | localStorage |
-| 部署 | GitHub Pages（gh-pages） |
+| 部署 | GitHub Pages（GitHub Actions） |
 
 ## 使用說明
 
