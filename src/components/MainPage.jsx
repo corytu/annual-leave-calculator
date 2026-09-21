@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { calculateSummary, formatPeriodLabel, toISODateString, parseLocalDate } from '../utils/leaveCalculations.js'
 import LeaveCalendar from './LeaveCalendar.jsx'
 import LeaveForm from './LeaveForm.jsx'
+import { useToday } from '../hooks/useToday.js'
 
 export default function MainPage({
   settings,
@@ -11,7 +12,7 @@ export default function MainPage({
   onDeleteRecord,
   onGoToSettings,
 }) {
-  const today = useMemo(() => new Date(), [])
+  const today = useToday()
   const summary = useMemo(
     () => calculateSummary(settings, records, today),
     [settings, records, today]
@@ -202,6 +203,7 @@ export default function MainPage({
           <LeaveForm
             key={activePeriod.milestoneMonths}
             settings={settings}
+            today={today}
             periodStart={activePeriod.periodStart}
             periodEnd={activePeriod.periodEnd}
             records={activePeriodRecords}
