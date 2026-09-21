@@ -8,7 +8,7 @@
 
 ## 開發環境設定
 
-詳細環境設定（含 Dev Container）請參考 README 的[本地端開發](README.md#本地端開發)一節。若已具備 Node.js 22.12+（建議 24，見 [.nvmrc](.nvmrc)）與 npm，最快的方式：
+詳細環境設定（含 Dev Container）請參考 README 的[本地端開發](README.md#本地端開發)一節。若已具備 Node.js 22.12+（建議 24，見 [`.nvmrc`](.nvmrc)）與 npm，最快的方式：
 
 ```shell
 npm ci
@@ -31,9 +31,9 @@ npx playwright install --with-deps chromium  # 首次執行 e2e 前需安裝瀏�
 npm run test:e2e        # 端對端測試
 ```
 
-這兩項測試對應 CI 中的 `unit-and-e2e-test` 檢查(見 [.github/workflows/pr-checks.yml](.github/workflows/pr-checks.yml))，是合併前必要的狀態檢查之一。CI 還會將 `test:coverage` 產生的 `coverage/cobertura-coverage.xml` 上傳至 [Codecov](https://about.codecov.io/)，PR 會有 Codecov 留言顯示涵蓋率變化，且 `codecov/patch` 檢查也是合併前必要的狀態檢查（見下方「Pull Request 合併規範」）。
+這兩項測試對應 CI 中的 `unit-and-e2e-test` 檢查(見 [`.github/workflows/pr-checks.yml`](.github/workflows/pr-checks.yml))，是合併前必要的狀態檢查之一。CI 還會將 `test:coverage` 產生的 `coverage/cobertura-coverage.xml` 上傳至 [Codecov](https://about.codecov.io/)，PR 會有 Codecov 留言顯示涵蓋率變化，且 `codecov/patch` 檢查也是合併前必要的狀態檢查（見下方「Pull Request 合併規範」）。
 
-單元測試涵蓋範圍僅限 `src/utils/**`（純邏輯層，見 [vitest.config.js](vitest.config.js)）；若新增或修改此目錄下的邏輯，請一併補上對應測試。
+單元測試涵蓋範圍僅限 `src/utils/**`（純邏輯層，見 [`vitest.config.js`](vitest.config.js)）；若新增或修改此目錄下的邏輯，請一併補上對應測試。
 
 ## Pull Request 合併規範
 
@@ -47,7 +47,7 @@ npm run test:e2e        # 端對端測試
   - `codecov/patch`（[Codecov](https://about.codecov.io/) 涵蓋率檢查，見下方「程式碼涵蓋率門檻」）
   - 上述檢查採 strict 模式，若 `master` 有新進度，可能需要先合併或 rebase 最新的 `master`
 - **程式碼掃描門檻**：CodeQL 掃描出 high 以上等級的安全性警示，或 error 等級的一般性警示，皆會擋下合併
-- **程式碼涵蓋率門檻**：由 Codecov 的 `codecov/patch` 檢查把關，針對 PR 修改行（範圍限 `src/utils/**`）的涵蓋率須達 90%，可容忍下降 3 個百分點（設定見 [.github/codecov.yml](.github/codecov.yml)）
+- **程式碼涵蓋率門檻**：由 Codecov 的 `codecov/patch` 檢查把關，針對 PR 修改行（範圍限 `src/utils/**`）的涵蓋率須達 90%，可容忍下降 3 個百分點（設定見 [`.github/codecov.yml`](.github/codecov.yml)）
 - **合併方式**：允許 Merge commit、Rebase 或 Squash merge
 - `master` 分支本身禁止刪除，也不允許 force-push
 

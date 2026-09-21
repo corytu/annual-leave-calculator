@@ -51,7 +51,7 @@
 
 #### 環境需求
 
-- Node.js 22.12+（建議 24，見 [.nvmrc](.nvmrc)）
+- Node.js 22.12+（建議 24，見 [`.nvmrc`](.nvmrc)）
 - npm
 
 #### 安裝與啟動
@@ -123,7 +123,7 @@ npx playwright install --with-deps chromium
 
 ## 開發輔助工具
 
-專案根目錄的 [`agent-loop.sh`](agent-loop.sh) 是這輪開發過程中用來自動化「Coder ⇄ Reviewer」多輪審查流程的輔助腳本，透過 Claude Code CLI 分別呼叫不同角色互相審查實作計畫與程式碼變更。它與特休計算機本身的功能沒有直接關聯，附在此處是為了讓有興趣的開發者檢閱這輪開發的協作方式，詳見 [docs/README-agent-loop.md](docs/README-agent-loop.md)。
+專案根目錄的 [`agent-loop.sh`](agent-loop.sh) 是這輪開發過程中用來自動化「Coder ⇄ Reviewer」多輪審查流程的輔助腳本，透過 Claude Code CLI 分別呼叫不同角色互相審查實作計畫與程式碼變更。它與特休計算機本身的功能沒有直接關聯，附在此處是為了讓有興趣的開發者檢閱這輪開發的協作方式，詳見 [`docs/README-agent-loop.md`](docs/README-agent-loop.md)。
 
 ## 貢獻
 
@@ -135,7 +135,7 @@ npx playwright install --with-deps chromium
 - PR 修改行的程式碼涵蓋率（範圍限 `src/utils/**`）須達 90%，可容忍下降 3 個百分點，由 Codecov 的 `codecov/patch` 檢查把關
 - 允許 Merge commit、Rebase 或 Squash 方式合併
 
-詳細的開發流程與規範請參考 [CONTRIBUTING.md](CONTRIBUTING.md)。
+詳細的開發流程與規範請參考 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 ## 授權
 

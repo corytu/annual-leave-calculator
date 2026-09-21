@@ -1,4 +1,4 @@
-# agent-loop.sh 使用說明
+# `agent-loop.sh` 使用說明
 
 [`agent-loop.sh`](../agent-loop.sh) 是這輪開發過程中用來自動化「Coder ⇄ Reviewer」多輪審查流程的輔助腳本，與特休計算機本身的功能沒有直接關聯。它透過 Claude Code CLI 分別呼叫兩個角色互相審查「實作計畫」或「程式碼 diff」，直到審查者核准，或達到輪數上限為止。
 
