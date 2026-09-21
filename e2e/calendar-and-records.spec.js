@@ -56,7 +56,7 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     await expect(page.getByTestId('summary-taken')).toContainText('2')
 
     // The calendar tile for the 20th should now show the leave dot.
-    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }), exact: true })
+    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }) + ' 已登記請假', exact: true })
     await expect(tile20.locator('.leave-dot')).toBeVisible()
   })
 
@@ -68,17 +68,29 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
 
     await expect(page.getByText('2025-06-20')).toBeVisible()
 
-    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }), exact: true })
+    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }) + ' 已登記請假', exact: true })
     const tile21 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 21 }), exact: true })
     const tile22 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 22 }), exact: true })
-    const tile23 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 23 }), exact: true })
-    const tile24 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 24 }), exact: true })
+    const tile23 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 23 }) + ' 已登記請假', exact: true })
+    const tile24 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 24 }) + ' 已登記請假', exact: true })
+    // The day right after the last leave day must stay untagged too, so a
+    // boundary bug (tagging one day too many) would be caught here.
+    const tile25 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 25 }), exact: true })
 
     await expect(tile20.locator('.leave-dot')).toBeVisible()
+    await expect(tile20.locator('.leave-dot')).toHaveAttribute('aria-hidden', 'true')
+    // Assert these plain-named tiles exist, not just that ".leave-dot" is
+    // absent -- a mislabeled tile would make the locator itself match
+    // nothing, letting the dot-count assertion pass vacuously.
+    await expect(tile21).toBeVisible()
     await expect(tile21.locator('.leave-dot')).toHaveCount(0)
+    await expect(tile22).toBeVisible()
     await expect(tile22.locator('.leave-dot')).toHaveCount(0)
     await expect(tile23.locator('.leave-dot')).toBeVisible()
+    await expect(tile23.locator('.leave-dot')).toHaveAttribute('aria-hidden', 'true')
     await expect(tile24.locator('.leave-dot')).toBeVisible()
+    await expect(tile24.locator('.leave-dot')).toHaveAttribute('aria-hidden', 'true')
+    await expect(tile25).toBeVisible()
   })
 
   test('編輯既有記錄：帶入原值、修改後清單與首頁同步更新', async ({ page }) => {
@@ -106,10 +118,15 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     })
     await page.reload()
 
+    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }) + ' 已登記請假', exact: true })
+    await expect(tile20).toBeVisible()
+
     await page.getByRole('button', { name: '刪除' }).click()
 
     await expect(page.getByText('本週年度尚無請假記錄')).toBeVisible()
     await expect(page.getByTestId('summary-taken')).toContainText('0')
+    await expect(page.getByRole('button', { name: /已登記請假/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }), exact: true })).toBeVisible()
   })
 
   test('日期超出當前週期範圍時顯示錯誤，不允許送出', async ({ page }) => {
