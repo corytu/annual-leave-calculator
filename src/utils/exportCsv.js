@@ -6,6 +6,13 @@
  */
 
 export function buildBackupCsv(settings, records, summary) {
+  // Rule rows and the growth settings below export the raw stored values.
+  // settlementDays is the one derived value here -- it comes from
+  // calculateSummary's result, which clamps entitledDays to
+  // MAX_ANNUAL_LEAVE_DAYS. Settings saved before #45 may therefore show e.g.
+  // a raw 1e23-day rule next to a settlement figure capped at 365. That is
+  // intentional: a backup should reflect the raw data, while the settlement
+  // amount reflects what the app would actually pay out.
   const settlementDays = summary.hasLeave
     ? summary.periods[summary.periods.length - 1].remaining
     : 0;

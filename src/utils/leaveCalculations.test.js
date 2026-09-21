@@ -18,6 +18,7 @@ import {
   checkLaborLawCompliance,
   NO_CUSTOM_GROWTH,
   MAX_MILESTONE_MONTHS,
+  MAX_ANNUAL_LEAVE_DAYS,
 } from './leaveCalculations.js'
 
 // Small helper so test cases read like dates, not Date(y, m-1, d) noise.
@@ -286,6 +287,28 @@ describe('getDaysForMilestone', () => {
       expect(getDaysForMilestone(24, 'custom', custom, growth)).toBe(8)
     })
   })
+
+  describe('MAX_ANNUAL_LEAVE_DAYS clamp (#45)', () => {
+    it('clamps a threshold-path day count that exceeds the ceiling', () => {
+      expect(getDaysForMilestone(12, 'custom', [{ months: 12, days: 500 }])).toBe(MAX_ANNUAL_LEAVE_DAYS)
+    })
+
+    it('clamps a growth-path day count that exceeds the ceiling', () => {
+      const growth = { perYear: 400, cap: 9000 }
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(MAX_ANNUAL_LEAVE_DAYS)
+    })
+
+    it('returns a value exactly at the ceiling unchanged', () => {
+      expect(getDaysForMilestone(12, 'custom', [{ months: 12, days: MAX_ANNUAL_LEAVE_DAYS }])).toBe(MAX_ANNUAL_LEAVE_DAYS)
+    })
+
+    it('falls back to 0 instead of NaN when stored data is missing a days value', () => {
+      // { months: 12 } normalizes to days: Number(undefined) = NaN, which
+      // would otherwise poison every Math.min comparison and slip through
+      // unclamped.
+      expect(getDaysForMilestone(12, 'custom', [{ months: 12 }])).toBe(0)
+    })
+  })
 })
 
 describe('getPeriodInfo', () => {
@@ -504,6 +527,29 @@ describe('validateRecordsChain', () => {
     })
   })
 
+  describe('MAX_ANNUAL_LEAVE_DAYS clamp bounds the overspend guard (#45)', () => {
+    // Only threshold is 12mo with an absurd day count; without clamping,
+    // the overspend guard below would accept a similarly absurd number of
+    // leave days.
+    const settings = {
+      onboardDate: '2020-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 12, days: 1e6 }],
+      allowCarryover: false,
+    }
+    const asOfDate = d('2021-06-01') // within milestone 12's period
+
+    it('allows spending exactly the clamped entitlement', () => {
+      const records = [{ startDate: '2021-01-15', days: MAX_ANNUAL_LEAVE_DAYS }]
+      expect(validateRecordsChain(settings, records, asOfDate).valid).toBe(true)
+    })
+
+    it('rejects spending 0.25 days beyond the clamped entitlement', () => {
+      const records = [{ startDate: '2021-01-15', days: MAX_ANNUAL_LEAVE_DAYS + 0.25 }]
+      expect(validateRecordsChain(settings, records, asOfDate).valid).toBe(false)
+    })
+  })
+
   describe('customGrowth affecting the next-period overspend threshold', () => {
     // Only threshold is 12mo (5 days); milestone 24 is a gap-filled repeat of
     // it. onboard 2020-01-01 -> milestone 12's period is 2021-01-01~2021-12-31
@@ -705,6 +751,21 @@ describe('calculateSummary', () => {
   // looser period-boundary rule: after the fix, this record gets re-gridded
   // into a shorter period and now looks overspent (D17). This test only
   // guards against a crash / hasLeave flip, not against the overspend itself.
+  it('clamps entitledDays at MAX_ANNUAL_LEAVE_DAYS for a settings blob with an absurd custom rule day count (#45)', () => {
+    // Reproduces the #45 report: onboard date far enough in the past that a
+    // custom rule of 1e23 days would otherwise flow straight into the summary.
+    const settings = {
+      onboardDate: '1900-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 12, days: 1e23 }],
+      allowCarryover: false,
+    }
+    const result = calculateSummary(settings, [], d('2000-01-01'))
+    expect(result.hasLeave).toBe(true)
+    const current = result.periods[result.periods.length - 1]
+    expect(current.entitledDays).toBe(MAX_ANNUAL_LEAVE_DAYS)
+  })
+
   it('does not throw and reports negative remaining when re-gridded periods make a previously-valid record look overspent (#19)', () => {
     const today = d('2022-03-01')
     const settings = {

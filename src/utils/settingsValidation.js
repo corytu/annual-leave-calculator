@@ -5,7 +5,7 @@
  * boundary cases can be covered by fast unit tests instead of Playwright.
  */
 
-import { getDaysForMilestone, MAX_MILESTONE_MONTHS } from './leaveCalculations.js'
+import { getDaysForMilestone, MAX_MILESTONE_MONTHS, MAX_ANNUAL_LEAVE_DAYS } from './leaveCalculations.js'
 
 /**
  * Validate the settings form before saving.
@@ -59,6 +59,12 @@ export function validateSettingsInput({ onboardDate, ruleType, customRules, grow
     // otherwise "cap >= last row" and "cap <= MAX" could both be unsatisfiable.
     const sorted = [...normalizedRules].sort((a, b) => a.months - b.months)
     const seenMonths = new Set()
+
+    // Each field's conditions are evaluated as separately named booleans, but
+    // any failure returns ONE message stating the field's full valid range.
+    // With alert() as the only feedback, per-condition messages made users fix
+    // one rule only to be stopped by the next. The named conditions are kept so
+    // a future inline-error UI can report each one individually.
     for (const r of sorted) {
       // Reject months beyond the sanity ceiling used by
       // normalizeCustomThresholds (D14), so a silently-dropped threshold
@@ -70,17 +76,24 @@ export function validateSettingsInput({ onboardDate, ruleType, customRules, grow
         return `年資門檻「${r.months} 個月」重複，請合併或刪除其中一列`
       }
       seenMonths.add(r.months)
-      if (!r.days || r.days <= 0) {
-        return '特休天數請填寫大於 0 的數字'
+
+      const daysIsNumber = Number.isFinite(r.days)
+      const daysIsPositive = daysIsNumber && r.days > 0
+      const daysWithinMax = daysIsNumber && r.days <= MAX_ANNUAL_LEAVE_DAYS
+      const daysIsQuarterStep = daysIsNumber && (r.days * 4) % 1 === 0
+      if (!(daysIsPositive && daysWithinMax && daysIsQuarterStep)) {
+        return `特休天數請填寫大於 0、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`
       }
     }
 
-    // Growth row validation, appended to the same custom-rules branch.
-    const perYearValid = growthPerYear !== '' && Number.isFinite(growthPerYearNum) &&
-      growthPerYearNum >= 0 && (growthPerYearNum * 4) % 1 === 0
-    if (!perYearValid) {
-      return '每年增加天數請填寫大於等於 0、且為 0.25 的倍數的數字'
+    const perYearIsNumber = growthPerYear !== '' && Number.isFinite(growthPerYearNum)
+    const perYearIsNonNegative = perYearIsNumber && growthPerYearNum >= 0
+    const perYearWithinMax = perYearIsNumber && growthPerYearNum <= MAX_ANNUAL_LEAVE_DAYS
+    const perYearIsQuarterStep = perYearIsNumber && (growthPerYearNum * 4) % 1 === 0
+    if (!(perYearIsNonNegative && perYearWithinMax && perYearIsQuarterStep)) {
+      return `每年增加天數請填寫 0 到 ${MAX_ANNUAL_LEAVE_DAYS} 之間、且為 0.25 的倍數的數字`
     }
+
     // Every cap check must stay inside this branch. When perYear is 0 the cap
     // input is disabled but its state may still hold a stale value (e.g. '9000'
     // typed before perYear was set to 0); validating it here would block the
@@ -89,14 +102,12 @@ export function validateSettingsInput({ onboardDate, ruleType, customRules, grow
       const lastDays = getDaysForMilestone(
         Math.max(...sorted.map(r => r.months)), 'custom', customRules
       )
-      if (growthCap === '' || !Number.isFinite(growthCapNum)) {
-        return '天數上限請填寫數字'
-      }
-      if (growthCapNum < lastDays) {
-        return `天數上限不可低於最後一列的天數（${lastDays} 天）`
-      }
-      if ((growthCapNum * 4) % 1 !== 0) {
-        return '天數上限請填寫 0.25 的倍數'
+      const capIsNumber = growthCap !== '' && Number.isFinite(growthCapNum)
+      const capAtLeastLastRow = capIsNumber && growthCapNum >= lastDays
+      const capWithinMax = capIsNumber && growthCapNum <= MAX_ANNUAL_LEAVE_DAYS
+      const capIsQuarterStep = capIsNumber && (growthCapNum * 4) % 1 === 0
+      if (!(capAtLeastLastRow && capWithinMax && capIsQuarterStep)) {
+        return `天數上限請填寫不低於 ${lastDays}（最後一列的天數）、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`
       }
     }
   }

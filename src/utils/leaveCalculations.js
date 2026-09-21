@@ -119,6 +119,17 @@ function buildLaborLawMilestones(upToMonths) {
 // of times) and is reused by checkLaborLawCompliance's horizon clamp (#20).
 export const MAX_MILESTONE_MONTHS = 1200; // 100 years
 
+// Sanity ceiling for any entitlement value -- a single custom rule's days,
+// the growth row's perYear and its cap. Rejects absurd input only; NOT a
+// precise physical limit (a period can be shorter than 12 months, so even
+// 260 weekdays isn't exact either). 365 makes the error message
+// self-explanatory. Don't "correct" it to 260 (#45).
+//
+// Enforced in two places: validateSettingsInput() rejects new input with a
+// message, and getDaysForMilestone() silently clamps values saved before
+// this limit existed.
+export const MAX_ANNUAL_LEAVE_DAYS = 365;
+
 /**
  * Clean user-entered thresholds into sorted, de-duplicated positive integers
  * within a sane range.
@@ -196,9 +207,22 @@ export function getDaysForMilestone(milestoneMonths, ruleType, customRules, cust
     const { perYear, cap } = normalizeCustomGrowth(customGrowth);
     if (perYear > 0 && milestoneMonths > lastRule.months) {
       const k = Math.floor((milestoneMonths - lastRule.months) / 12);
-      return Math.min(lastRule.days + perYear * k, Math.max(cap, lastRule.days));
+      const grown = Math.min(
+        lastRule.days + perYear * k,
+        Math.max(cap, lastRule.days),
+        MAX_ANNUAL_LEAVE_DAYS,
+      );
+      // NaN poisons every Math.min/Math.max comparison (all comparisons
+      // involving NaN are false), so corrupt stored data -- e.g. a rule
+      // missing `days`, normalized to Number(undefined) = NaN -- would
+      // otherwise slip through unclamped instead of being caught here.
+      // Falling back to 0 keeps the safe direction: an entitlement of 0
+      // cannot cause the overspend hole #45 closes, while falling back to
+      // MAX_ANNUAL_LEAVE_DAYS would just recreate a smaller version of it.
+      return Number.isFinite(grown) ? grown : 0;
     }
-    return days;
+    const clamped = Math.min(days, MAX_ANNUAL_LEAVE_DAYS);
+    return Number.isFinite(clamped) ? clamped : 0;
   }
   return getLaborLawDays(milestoneMonths);
 }
