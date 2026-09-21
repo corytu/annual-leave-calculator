@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { checkLaborLawCompliance, getLaborLawDays, calculateSummary, toISODateString, MAX_MILESTONE_MONTHS } from '../utils/leaveCalculations.js'
+import { checkLaborLawCompliance, getLaborLawDays, calculateSummary, toISODateString, MAX_MILESTONE_MONTHS, MAX_ANNUAL_LEAVE_DAYS } from '../utils/leaveCalculations.js'
 import { buildBackupCsv, downloadCsv } from '../utils/exportCsv.js'
 import { DEFAULT_SETTINGS } from '../utils/storage.js'
 import { validateSettingsInput } from '../utils/settingsValidation.js'
@@ -290,7 +290,8 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                           <div className="flex items-center gap-1.5">
                             <input
                               type="number"
-                              min={0}
+                              min={0.25}
+                              max={MAX_ANNUAL_LEAVE_DAYS}
                               step={0.25}
                               value={rule.days}
                               disabled={isLocked}
@@ -331,6 +332,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                           <input
                             type="number"
                             min={0}
+                            max={MAX_ANNUAL_LEAVE_DAYS}
                             step={0.25}
                             value={growthPerYear}
                             disabled={isLocked}
@@ -344,6 +346,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                           <input
                             type="number"
                             min={0}
+                            max={MAX_ANNUAL_LEAVE_DAYS}
                             step={0.25}
                             value={growthCap}
                             disabled={isLocked || (growthPerYear !== '' && Number(growthPerYear) === 0)}

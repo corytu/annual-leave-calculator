@@ -172,6 +172,9 @@ test.describe('特休規則設定', () => {
     await daysInput.pressSequentially('4.75')
 
     await expect(daysInput).toHaveValue('4.75')
+    // min/max mirror validateSettingsInput's actual bounds (#30).
+    await expect(daysInput).toHaveAttribute('min', '0.25')
+    await expect(daysInput).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
   })
 
   test('每年可休天數輸入框：只打了負號就直接儲存時顯示錯誤，不允許存檔', async ({ page }) => {
@@ -249,6 +252,12 @@ test.describe('特休規則設定', () => {
     await expect(page.getByLabel('天數上限')).toBeDisabled()
     await expect(page.getByLabel('天數上限')).toHaveCSS('cursor', 'not-allowed')
     await expect(page.getByLabel('每年增加天數')).not.toHaveCSS('cursor', 'not-allowed')
+
+    // min/max mirror validateSettingsInput's actual bounds (#30).
+    await expect(page.getByLabel('每年增加天數')).toHaveAttribute('min', '0')
+    await expect(page.getByLabel('每年增加天數')).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
+    await expect(page.getByLabel('天數上限')).toHaveAttribute('min', '0')
+    await expect(page.getByLabel('天數上限')).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
   })
 
   test('每年增加天數留空時無法儲存並顯示錯誤', async ({ page }) => {

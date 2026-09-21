@@ -550,6 +550,23 @@ describe('validateRecordsChain', () => {
     })
   })
 
+  describe('a single record legitimately exceeding 30 days (#30)', () => {
+    it('allows spending up to the combined 90-day allowance once entitlement has plateaued at 30 days/period', () => {
+      // Labor law, onboard 2000-01-01, carryover on, asOf within milestone
+      // 300's period (2025-01-01~2025-12-31), where entitlement has long
+      // plateaued at 30 days/period -- so carryIn, entitledDays and
+      // nextEntitled are each 30. With nothing taken beforehand:
+      // availableTotal = carryIn 30 + entitled 30 - taken, which must be
+      // >= -nextEntitled 30, so taken <= 90.
+      const settings = { onboardDate: '2000-01-01', ruleType: 'labor', customRules: [], allowCarryover: true }
+      const asOfDate = d('2025-06-15')
+      const validRecords = [{ startDate: '2025-06-01', days: 90 }]
+      const invalidRecords = [{ startDate: '2025-06-01', days: 90.25 }]
+      expect(validateRecordsChain(settings, validRecords, asOfDate).valid).toBe(true)
+      expect(validateRecordsChain(settings, invalidRecords, asOfDate).valid).toBe(false)
+    })
+  })
+
   describe('customGrowth affecting the next-period overspend threshold', () => {
     // Only threshold is 12mo (5 days); milestone 24 is a gap-filled repeat of
     // it. onboard 2020-01-01 -> milestone 12's period is 2021-01-01~2021-12-31
