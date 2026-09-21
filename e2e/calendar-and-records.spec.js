@@ -212,6 +212,11 @@ test.describe('壞資料健壯性 (#29)', () => {
     // still reports the full (absurd) overspend -- only calendar dots are
     // bounded, not the reported total (7-day entitlement - 1,000,000 taken).
     await expect(page.getByTestId('summary-remaining')).toContainText('-999993')
+    // The clamp only bounds how many dates get dotted, not whether dotting
+    // still works at all -- confirm the record's first day (2025-06-20, a
+    // Friday) is actually marked, not just that render didn't hang.
+    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }) + ' 已登記請假', exact: true })
+    await expect(tile20.locator('.leave-dot')).toBeVisible()
   })
 })
 

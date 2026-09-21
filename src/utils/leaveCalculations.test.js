@@ -796,21 +796,6 @@ describe('calculateSummary', () => {
   // looser period-boundary rule: after the fix, this record gets re-gridded
   // into a shorter period and now looks overspent (D17). This test only
   // guards against a crash / hasLeave flip, not against the overspend itself.
-  it('clamps entitledDays at MAX_ANNUAL_LEAVE_DAYS for a settings blob with an absurd custom rule day count (#45)', () => {
-    // Reproduces the #45 report: onboard date far enough in the past that a
-    // custom rule of 1e23 days would otherwise flow straight into the summary.
-    const settings = {
-      onboardDate: '1900-01-01',
-      ruleType: 'custom',
-      customRules: [{ months: 12, days: 1e23 }],
-      allowCarryover: false,
-    }
-    const result = calculateSummary(settings, [], d('2000-01-01'))
-    expect(result.hasLeave).toBe(true)
-    const current = result.periods[result.periods.length - 1]
-    expect(current.entitledDays).toBe(MAX_ANNUAL_LEAVE_DAYS)
-  })
-
   it('does not throw and reports negative remaining when re-gridded periods make a previously-valid record look overspent (#19)', () => {
     const today = d('2022-03-01')
     const settings = {
@@ -824,6 +809,21 @@ describe('calculateSummary', () => {
     expect(result.hasLeave).toBe(true)
     const current = result.periods.find(p => p.milestoneMonths === 24)
     expect(current.remaining).toBe(-3)
+  })
+
+  it('clamps entitledDays at MAX_ANNUAL_LEAVE_DAYS for a settings blob with an absurd custom rule day count (#45)', () => {
+    // Reproduces the #45 report: onboard date far enough in the past that a
+    // custom rule of 1e23 days would otherwise flow straight into the summary.
+    const settings = {
+      onboardDate: '1900-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 12, days: 1e23 }],
+      allowCarryover: false,
+    }
+    const result = calculateSummary(settings, [], d('2000-01-01'))
+    expect(result.hasLeave).toBe(true)
+    const current = result.periods[result.periods.length - 1]
+    expect(current.entitledDays).toBe(MAX_ANNUAL_LEAVE_DAYS)
   })
 })
 

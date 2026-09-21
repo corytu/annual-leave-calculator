@@ -128,6 +128,23 @@ export const MAX_MILESTONE_MONTHS = 1200; // 100 years
 // Enforced in two places: validateSettingsInput() rejects new input with a
 // message, and getDaysForMilestone() silently clamps values saved before
 // this limit existed.
+//
+// Known consequence of the clamp (accepted tradeoff, not a bug): a user whose
+// pre-#45 settings granted an absurd entitlement (e.g. 1e23 days) and who
+// already logged leave close to that old entitlement will, after this clamp
+// takes effect, permanently look overspent for that period -- their real
+// `days` total still exceeds the clamped 365. validateRecordsChain checks the
+// whole ledger, so it will then reject *every* new or edited record, not just
+// ones touching the offending period, and the settings page is locked once
+// onboardDate is saved, so they cannot lower the rule to fix it either. The
+// only in-app fix is switching to that period's tab and deleting or shrinking
+// the offending record: deletion (LeaveForm.jsx's RecordRow -> onDelete)
+// never goes through validateRecordsChain, and editing validates the
+// post-edit candidateRecords, so shrinking the record to within the clamped
+// entitlement also passes. The cost is losing the leave logged under the old
+// rule. Migrating stored data or scoping validateRecordsChain to only the
+// periods a given edit touches would both avoid that cost, but are out of
+// scope here -- see docs/reviews/83e5a17-annual-leave-cap-concept-plan.md §9.
 export const MAX_ANNUAL_LEAVE_DAYS = 365;
 
 /**

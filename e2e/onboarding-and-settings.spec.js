@@ -196,7 +196,7 @@ test.describe('特休規則設定', () => {
     })
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    expect(alertMessage).toBe('特休天數請填寫大於 0、不超過 365、且為 0.25 的倍數的數字')
+    expect(alertMessage).toBe(`特休天數請填寫大於 0、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
     // Still on the settings page -- the save was blocked, nothing persisted.
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
@@ -273,7 +273,7 @@ test.describe('特休規則設定', () => {
     })
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    expect(alertMessage).toBe('每年增加天數請填寫 0 到 365 之間、且為 0.25 的倍數的數字')
+    expect(alertMessage).toBe(`每年增加天數請填寫 0 到 ${MAX_ANNUAL_LEAVE_DAYS} 之間、且為 0.25 的倍數的數字`)
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
 
@@ -291,7 +291,7 @@ test.describe('特休規則設定', () => {
     })
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    expect(alertMessage).toBe('天數上限請填寫不低於 16（最後一列的天數）、不超過 365、且為 0.25 的倍數的數字')
+    expect(alertMessage).toBe(`天數上限請填寫不低於 16（最後一列的天數）、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
 
@@ -308,7 +308,7 @@ test.describe('特休規則設定', () => {
     })
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    expect(alertMessage).toBe('天數上限請填寫不低於 16（最後一列的天數）、不超過 365、且為 0.25 的倍數的數字')
+    expect(alertMessage).toBe(`天數上限請填寫不低於 16（最後一列的天數）、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
 
@@ -379,6 +379,13 @@ test.describe('特休規則設定', () => {
     // Back on the main page -- no alert, save succeeded.
     await expect(page.getByText('到職日：')).toBeVisible()
     expect(dialogFired).toBe(false)
+
+    // The disabled cap field's stale '9000' must not have been persisted --
+    // Settings.jsx saves cap as 0 whenever perYear is 0 (C4).
+    const storedSettings = await page.evaluate(
+      () => JSON.parse(window.localStorage.getItem('leaveCalculator_settings'))
+    )
+    expect(storedSettings.customGrowth).toEqual({ perYear: 0, cap: 0 })
   })
 
   test('公司另有規定使用預設門檻時，滿 4 年後仍是 12 個月一期', async ({ page }) => {
