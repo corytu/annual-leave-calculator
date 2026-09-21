@@ -29,6 +29,14 @@ const SETTINGS_WITH_CARRYOVER = {
   allowCarryover: true,
 }
 
+// onboard 2024-06-15, no carryover -- used for the midnight-rollover tests below.
+const MIDNIGHT_ROLLOVER_SETTINGS = {
+  onboardDate: '2024-06-15',
+  ruleType: 'labor',
+  customRules: [],
+  allowCarryover: false,
+}
+
 test.describe('期別分頁', () => {
   test('多期別時分頁數量與標籤格式正確，且由左至右年份降冪排列', async ({ page }) => {
     // Frozen "today" 2026-01-15 -> completed months 28 -> chain is
@@ -204,5 +212,33 @@ test.describe('期別分頁', () => {
     await june20th2024.click()
 
     await expect(page.locator('input[type="date"]')).toHaveValue('2024-06-20')
+  })
+
+  test('分頁保持開啟，跨越午夜後會新增週年制期別分頁', async ({ page }) => {
+    await freezeTime(page, '2025-06-14T23:59:30')
+    await seedAppStorage(page, { settings: MIDNIGHT_ROLLOVER_SETTINGS, records: [] })
+    await page.goto('/')
+    const tabs = page.getByTestId('period-tabs').getByRole('button')
+    await expect(tabs).toHaveCount(1)
+
+    await page.clock.runFor(60_000)
+    await expect(tabs).toHaveCount(2)
+    await page.getByTestId('period-tabs').getByRole('button', { name: '2025–26', exact: true }).click()
+    await expect(page.getByTestId('summary-entitled')).toContainText('7')
+
+    // Validation must agree with the newly displayed period without a reload.
+    await page.locator('input[type="date"]').fill('2025-06-15')
+    await page.getByRole('button', { name: '新增', exact: true }).click()
+    await expect(page.getByTestId('summary-taken')).toContainText('1')
+  })
+
+  test('分頁保持開啟，達成首次特休資格後會離開空白狀態', async ({ page }) => {
+    await freezeTime(page, '2024-12-14T23:59:30')
+    await seedAppStorage(page, { settings: MIDNIGHT_ROLLOVER_SETTINGS, records: [] })
+    await page.goto('/')
+    await expect(page.getByTestId('summary-entitled')).toHaveCount(0)
+
+    await page.clock.runFor(60_000)
+    await expect(page.getByTestId('summary-entitled')).toContainText('3')
   })
 })

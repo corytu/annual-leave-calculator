@@ -5,6 +5,7 @@ const DAY_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 
 
 export default function LeaveForm({
   settings,
+  today,
   periodStart,
   periodEnd,
   records,
@@ -51,7 +52,7 @@ export default function LeaveForm({
       ? allRecords.map(r => r.id === editingRecord.id ? { ...r, startDate, days: parsedDays } : r)
       : [...allRecords, { startDate, days: parsedDays }]
 
-    const chainResult = validateRecordsChain(settings, candidateRecords, new Date())
+    const chainResult = validateRecordsChain(settings, candidateRecords, today)
     if (!chainResult.valid) {
       setError('這筆請假超支可用額度上限，請確認天數是否正確')
       return false
