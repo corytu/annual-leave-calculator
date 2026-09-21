@@ -117,7 +117,7 @@ function buildLaborLawMilestones(upToMonths) {
 // Sanity ceiling for any month-threshold value. Bounds the gap-fill loop
 // below (a huge gap between two thresholds would otherwise iterate millions
 // of times) and is reused by checkLaborLawCompliance's horizon clamp (#20).
-const MAX_MILESTONE_MONTHS = 1200; // 100 years
+export const MAX_MILESTONE_MONTHS = 1200; // 100 years
 
 /**
  * Clean user-entered thresholds into sorted, de-duplicated positive integers

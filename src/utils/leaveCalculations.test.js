@@ -17,6 +17,7 @@ import {
   formatPeriodLabel,
   checkLaborLawCompliance,
   NO_CUSTOM_GROWTH,
+  MAX_MILESTONE_MONTHS,
 } from './leaveCalculations.js'
 
 // Small helper so test cases read like dates, not Date(y, m-1, d) noise.
@@ -800,7 +801,7 @@ describe('checkLaborLawCompliance', () => {
     expect(warnings[0].fromMonths).toBe(132)
     expect(warnings[0].untilMonths).toBeNull() // still deficient at the clamped horizon
     for (const w of warnings) {
-      expect(w.fromMonths).toBeLessThanOrEqual(1200)
+      expect(w.fromMonths).toBeLessThanOrEqual(MAX_MILESTONE_MONTHS)
     }
   })
 })

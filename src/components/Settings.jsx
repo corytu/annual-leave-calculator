@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { checkLaborLawCompliance, getLaborLawDays, getDaysForMilestone, calculateSummary, toISODateString } from '../utils/leaveCalculations.js'
+import { checkLaborLawCompliance, getLaborLawDays, getDaysForMilestone, calculateSummary, toISODateString, MAX_MILESTONE_MONTHS } from '../utils/leaveCalculations.js'
 import { buildBackupCsv, downloadCsv } from '../utils/exportCsv.js'
 import { DEFAULT_SETTINGS } from '../utils/storage.js'
 
@@ -117,8 +117,8 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
         // Reject months beyond the sanity ceiling used by
         // normalizeCustomThresholds (D14), so a silently-dropped threshold
         // doesn't look like a successful save.
-        if (!Number.isInteger(r.months) || r.months < 1 || r.months > 1200) {
-          alert('年資門檻請填寫 1200 個月（100 年）以內的正整數')
+        if (!Number.isInteger(r.months) || r.months < 1 || r.months > MAX_MILESTONE_MONTHS) {
+          alert(`年資門檻請填寫 ${MAX_MILESTONE_MONTHS} 個月（${MAX_MILESTONE_MONTHS / 12} 年）以內的正整數`)
           return
         }
         if (seenMonths.has(r.months)) {
@@ -199,7 +199,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
   // value (e.g. months cleared to 0) or one beyond the sanity ceiling.
   const validThresholds = customRules
     .map(r => Number(r.months))
-    .filter(m => Number.isInteger(m) && m >= 1 && m <= 1200)
+    .filter(m => Number.isInteger(m) && m >= 1 && m <= MAX_MILESTONE_MONTHS)
   const lastValidThreshold = validThresholds.length > 0 ? Math.max(...validThresholds) : null
 
   return (
@@ -333,7 +333,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                             <input
                               type="number"
                               min={1}
-                              max={1200}
+                              max={MAX_MILESTONE_MONTHS}
                               step={1}
                               value={rule.months}
                               disabled={isLocked}
