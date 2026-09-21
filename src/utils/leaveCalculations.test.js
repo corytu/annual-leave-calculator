@@ -19,6 +19,7 @@ import {
   NO_CUSTOM_GROWTH,
   MAX_MILESTONE_MONTHS,
   MAX_ANNUAL_LEAVE_DAYS,
+  MAX_LEAVE_RECORD_DATES,
 } from './leaveCalculations.js'
 
 // Small helper so test cases read like dates, not Date(y, m-1, d) noise.
@@ -419,6 +420,33 @@ describe('getLeaveRecordDates', () => {
     expect(getLeaveRecordDates('2026-08-31', 2.5)).toEqual([
       '2026-08-31', '2026-09-01', '2026-09-02',
     ])
+  })
+
+  describe('MAX_LEAVE_RECORD_DATES bound (#29)', () => {
+    it('stops at MAX_LEAVE_RECORD_DATES instead of hanging for an absurd day count', () => {
+      expect(getLeaveRecordDates('2026-09-01', 1e6)).toHaveLength(MAX_LEAVE_RECORD_DATES)
+    })
+
+    it('does not truncate a day count exactly at the bound', () => {
+      expect(getLeaveRecordDates('2026-09-01', MAX_LEAVE_RECORD_DATES)).toHaveLength(MAX_LEAVE_RECORD_DATES)
+    })
+
+    it('still yields the full bound when the count is just under it, since the trailing fractional day occupies a date', () => {
+      expect(getLeaveRecordDates('2026-09-01', MAX_LEAVE_RECORD_DATES - 0.5)).toHaveLength(MAX_LEAVE_RECORD_DATES)
+    })
+
+    it.each([
+      ['Infinity', Infinity],
+      ['NaN', NaN],
+      ['a non-numeric string', 'abc'],
+      ['undefined', undefined],
+    ])('returns an empty array for a non-finite day count (%s)', (_label, days) => {
+      expect(getLeaveRecordDates('2026-09-01', days)).toEqual([])
+    })
+
+    it('treats a numeric string the same as the equivalent number', () => {
+      expect(getLeaveRecordDates('2026-09-01', '5')).toEqual(getLeaveRecordDates('2026-09-01', 5))
+    })
   })
 })
 

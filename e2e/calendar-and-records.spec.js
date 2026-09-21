@@ -196,6 +196,25 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
   })
 })
 
+test.describe('壞資料健壯性 (#29)', () => {
+  test('請假天數為荒謬大值的記錄不會讓月曆凍結，摘要如實顯示超支', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, {
+      settings: BASE_SETTINGS,
+      records: [{ id: 'r1', startDate: '2025-06-20', days: 1e6 }],
+    })
+    await page.goto('/')
+
+    // If MAX_LEAVE_RECORD_DATES did not bound the expansion loop, the
+    // calendar's render would hang and this assertion would time out.
+    await expect(page.getByTestId('summary-entitled')).toBeVisible()
+    // getLeaveTakenInPeriod sums the raw days directly, so the summary
+    // still reports the full (absurd) overspend -- only calendar dots are
+    // bounded, not the reported total (7-day entitlement - 1,000,000 taken).
+    await expect(page.getByTestId('summary-remaining')).toContainText('-999993')
+  })
+})
+
 test.describe('資料持久化', () => {
   test('新增記錄並重新整理頁面後，資料仍然存在', async ({ page }) => {
     await freezeTime(page)

@@ -325,6 +325,20 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
 
 // ─── Leave-record helpers ────────────────────────────────────────────────────
 
+// Upper bound on how many dates one leave record can expand to on the
+// calendar. The overspend guard caps a single period's total leave at
+// carry-in (<= the previous period's entitlement) + this period's
+// entitlement + the next period's advance, each <= MAX_ANNUAL_LEAVE_DAYS.
+// A fractional trailing day still occupies a date, so a valid record yields
+// at most ceil(days) <= 3 * MAX_ANNUAL_LEAVE_DAYS dates and is never
+// truncated. Anything longer is corrupt data (e.g. hand-edited localStorage,
+// or records saved before #45), and without this bound the loop below would
+// freeze the tab during LeaveCalendar's render (#29).
+//
+// A module constant rather than a function parameter, so no caller can
+// pass a larger value and bypass the guard. Exported for tests only.
+export const MAX_LEAVE_RECORD_DATES = 3 * MAX_ANNUAL_LEAVE_DAYS;
+
 /**
  * Expand a leave record's startDate + days into the list of calendar dates
  * it actually spans, skipping Saturdays and Sundays. Each weekday consumes
@@ -332,13 +346,21 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
  *
  * Only Saturdays/Sundays are skipped -- national holidays and their
  * compensatory workdays (補班日) are not taken into account (#33).
+ *
+ * Bounded by MAX_LEAVE_RECORD_DATES (#29); this only affects calendar dots --
+ * getLeaveTakenInPeriod sums the raw `days` value directly, so a corrupt
+ * record still shows up as an overspend in the summary (not silently hidden).
  */
 export function getLeaveRecordDates(startDate, days) {
   const start = typeof startDate === 'string' ? parseLocalDate(startDate) : startDate;
   const cursor = new Date(start);
   const dates = [];
-  let remaining = days;
-  while (remaining > 0) {
+  let remaining = Number(days);
+  // A non-finite day count (NaN, Infinity) means the record is corrupt, so
+  // mark nothing rather than guess. The bound below would already stop the
+  // loop; this check exists to make that intent explicit.
+  if (!Number.isFinite(remaining)) return dates;
+  while (remaining > 0 && dates.length < MAX_LEAVE_RECORD_DATES) {
     const dow = cursor.getDay();
     if (dow !== 0 && dow !== 6) {
       dates.push(toISODateString(cursor));
