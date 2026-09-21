@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { checkLaborLawCompliance, getLaborLawDays, getDaysForMilestone, calculateSummary, toISODateString, MAX_MILESTONE_MONTHS } from '../utils/leaveCalculations.js'
+import { checkLaborLawCompliance, getLaborLawDays, calculateSummary, toISODateString, MAX_MILESTONE_MONTHS } from '../utils/leaveCalculations.js'
 import { buildBackupCsv, downloadCsv } from '../utils/exportCsv.js'
 import { DEFAULT_SETTINGS } from '../utils/storage.js'
+import { validateSettingsInput } from '../utils/settingsValidation.js'
 
 // Default custom rules pre-populated with labor law as a starting point
 const DEFAULT_CUSTOM_RULES = [
@@ -82,9 +83,9 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
   // ── Save ─────────────────────────────────────────────────────────────────
 
   function handleSave() {
-    // Validate onboard date
-    if (!onboardDate) {
-      alert('請填寫到職日')
+    const error = validateSettingsInput({ onboardDate, ruleType, customRules, growthPerYear, growthCap })
+    if (error) {
+      alert(error)
       return
     }
 
@@ -93,70 +94,8 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
       months: Number(r.months),
       days: Number(r.days),
     }))
-
-    // growthPerYearNum/growthCapNum are declared here, outside every branch,
-    // because both the validation below and the onSave(...) payload at the
-    // bottom of this function need them in scope.
     const growthPerYearNum = Number(growthPerYear)
     const growthCapNum = Number(growthCap)
-
-    if (ruleType === 'custom') {
-      // This whole block -- including the empty-list guard -- must stay inside
-      // the `ruleType === 'custom'` branch. A user who deleted every custom
-      // rule and then switched back to 'labor' has an empty customRules array
-      // that is irrelevant once ruleType is 'labor'; if the guard ran
-      // unconditionally, they could never save again.
-      if (normalizedRules.length === 0) {
-        alert('請至少保留一條自訂規則')
-        return
-      }
-
-      const sorted = [...normalizedRules].sort((a, b) => a.months - b.months)
-      const seenMonths = new Set()
-      for (const r of sorted) {
-        // Reject months beyond the sanity ceiling used by
-        // normalizeCustomThresholds (D14), so a silently-dropped threshold
-        // doesn't look like a successful save.
-        if (!Number.isInteger(r.months) || r.months < 1 || r.months > MAX_MILESTONE_MONTHS) {
-          alert(`年資門檻請填寫 ${MAX_MILESTONE_MONTHS} 個月（${MAX_MILESTONE_MONTHS / 12} 年）以內的正整數`)
-          return
-        }
-        if (seenMonths.has(r.months)) {
-          alert(`年資門檻「${r.months} 個月」重複，請合併或刪除其中一列`)
-          return
-        }
-        seenMonths.add(r.months)
-        if (!r.days || r.days <= 0) {
-          alert('特休天數請填寫大於 0 的數字')
-          return
-        }
-      }
-
-      // Growth row validation, appended to the same custom-rules branch.
-      const perYearValid = growthPerYear !== '' && Number.isFinite(growthPerYearNum) &&
-        growthPerYearNum >= 0 && (growthPerYearNum * 4) % 1 === 0
-      if (!perYearValid) {
-        alert('每年增加天數請填寫大於等於 0、且為 0.25 的倍數的數字')
-        return
-      }
-      if (growthPerYearNum > 0) {
-        const lastDays = getDaysForMilestone(
-          Math.max(...sorted.map(r => r.months)), 'custom', customRules
-        )
-        if (growthCap === '' || !Number.isFinite(growthCapNum)) {
-          alert('天數上限請填寫數字')
-          return
-        }
-        if (growthCapNum < lastDays) {
-          alert(`天數上限不可低於最後一列的天數（${lastDays} 天）`)
-          return
-        }
-        if ((growthCapNum * 4) % 1 !== 0) {
-          alert('天數上限請填寫 0.25 的倍數')
-          return
-        }
-      }
-    }
 
     onSave({
       onboardDate,
