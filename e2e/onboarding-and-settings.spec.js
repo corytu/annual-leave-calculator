@@ -256,7 +256,9 @@ test.describe('特休規則設定', () => {
     // min/max mirror validateSettingsInput's actual bounds (#30).
     await expect(page.getByLabel('每年增加天數')).toHaveAttribute('min', '0')
     await expect(page.getByLabel('每年增加天數')).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
-    await expect(page.getByLabel('天數上限')).toHaveAttribute('min', '0')
+    // capMin follows the highest-threshold row's days; with DEFAULT_CUSTOM_RULES
+    // that row is 120 months / 16 days.
+    await expect(page.getByLabel('天數上限')).toHaveAttribute('min', '16')
     await expect(page.getByLabel('天數上限')).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
   })
 

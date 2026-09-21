@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateSettingsInput } from './settingsValidation.js'
+import { validateSettingsInput, getCustomCapMin } from './settingsValidation.js'
 import { MAX_MILESTONE_MONTHS, MAX_ANNUAL_LEAVE_DAYS } from './leaveCalculations.js'
 
 // A small custom rule set used as a valid baseline across tests. Last row
@@ -141,5 +141,37 @@ describe('validateSettingsInput', () => {
 
   it('accepts the default custom rules with a valid growth row', () => {
     expect(validateSettingsInput(input({ growthPerYear: '1', growthCap: '30' }))).toBeNull()
+  })
+})
+
+describe('getCustomCapMin', () => {
+  it("returns the highest-threshold row's days when it is a valid day count", () => {
+    expect(getCustomCapMin(BASE_RULES)).toBe(LAST_ROW_DAYS)
+  })
+
+  it('falls back to 0 when the highest-threshold row\'s months is not a parseable number', () => {
+    // '-' is a realistic mid-typing state for a negative number and, unlike
+    // '', does not coerce to 0 -- Number('-') is NaN, so this row is excluded
+    // from getDaysForMilestone's own valid-threshold lookup entirely.
+    const rules = [{ months: '12', days: '10' }, { months: '-', days: '14' }]
+    expect(getCustomCapMin(rules)).toBe(0)
+  })
+
+  it('falls back to 0 when the highest-threshold row\'s days is blank/NaN', () => {
+    const rules = [{ months: '12', days: '10' }, { months: '24', days: '' }]
+    expect(getCustomCapMin(rules)).toBe(0)
+  })
+
+  it.each([
+    ['zero', 0],
+    ['negative', -1],
+  ])('falls back to 0 when the highest-threshold row\'s days is %s', (_label, days) => {
+    const rules = [{ months: '12', days: '10' }, { months: '24', days }]
+    expect(getCustomCapMin(rules)).toBe(0)
+  })
+
+  it('falls back to 0 when the highest-threshold row\'s days is not a multiple of 0.25', () => {
+    const rules = [{ months: '12', days: '10' }, { months: '24', days: '16.1' }]
+    expect(getCustomCapMin(rules)).toBe(0)
   })
 })

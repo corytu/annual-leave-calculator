@@ -8,6 +8,45 @@
 import { getDaysForMilestone, MAX_MILESTONE_MONTHS, MAX_ANNUAL_LEAVE_DAYS } from './leaveCalculations.js'
 
 /**
+ * Days for the custom rule whose months threshold is the highest (not
+ * necessarily the last element in `customRules`' original order). This is
+ * what the cap must be `>=` -- shared by the save-time validation below and
+ * by Settings.jsx, which uses it to set the cap input's `min`.
+ *
+ * @param {Array<{ months: any, days: any }>} customRules
+ * @returns {number}
+ */
+export function getLastRuleDays(customRules) {
+  const normalizedRules = customRules.map(r => ({
+    ...r,
+    months: Number(r.months),
+    days: Number(r.days),
+  }))
+  const sorted = [...normalizedRules].sort((a, b) => a.months - b.months)
+  return getDaysForMilestone(
+    Math.max(...sorted.map(r => r.months)), 'custom', customRules
+  )
+}
+
+/**
+ * The value to use as the cap input's `min`. Only meaningful when the
+ * highest-threshold rule's days is itself a valid day count (finite, >=
+ * 0.25, a multiple of 0.25) -- e.g. mid-edit it could be blank, negative, or
+ * fractional in a way that isn't a quarter-day step, none of which should be
+ * pinned as a floor. Falls back to 0 in those cases; the real gate against
+ * an invalid cap is still validateSettingsInput below, this only steers the
+ * input's spinner arrows and :invalid state.
+ *
+ * @param {Array<{ months: any, days: any }>} customRules
+ * @returns {number}
+ */
+export function getCustomCapMin(customRules) {
+  const lastDays = getLastRuleDays(customRules)
+  const isValid = Number.isFinite(lastDays) && lastDays >= 0.25 && (lastDays * 4) % 1 === 0
+  return isValid ? lastDays : 0
+}
+
+/**
  * Validate the settings form before saving.
  *
  * Returns the message of the FIRST failing check, or null when everything
@@ -99,9 +138,7 @@ export function validateSettingsInput({ onboardDate, ruleType, customRules, grow
     // typed before perYear was set to 0); validating it here would block the
     // save on a field the user cannot edit. The saved cap is 0 in that case.
     if (growthPerYearNum > 0) {
-      const lastDays = getDaysForMilestone(
-        Math.max(...sorted.map(r => r.months)), 'custom', customRules
-      )
+      const lastDays = getLastRuleDays(customRules)
       const capIsNumber = growthCap !== '' && Number.isFinite(growthCapNum)
       const capAtLeastLastRow = capIsNumber && growthCapNum >= lastDays
       const capWithinMax = capIsNumber && growthCapNum <= MAX_ANNUAL_LEAVE_DAYS

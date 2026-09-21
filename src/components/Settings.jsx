@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { checkLaborLawCompliance, getLaborLawDays, calculateSummary, toISODateString, MAX_MILESTONE_MONTHS, MAX_ANNUAL_LEAVE_DAYS } from '../utils/leaveCalculations.js'
 import { buildBackupCsv, downloadCsv } from '../utils/exportCsv.js'
 import { DEFAULT_SETTINGS } from '../utils/storage.js'
-import { validateSettingsInput } from '../utils/settingsValidation.js'
+import { validateSettingsInput, getCustomCapMin } from '../utils/settingsValidation.js'
 
 // Default custom rules pre-populated with labor law as a starting point
 const DEFAULT_CUSTOM_RULES = [
@@ -140,6 +140,8 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
     .map(r => Number(r.months))
     .filter(m => Number.isInteger(m) && m >= 1 && m <= MAX_MILESTONE_MONTHS)
   const lastValidThreshold = validThresholds.length > 0 ? Math.max(...validThresholds) : null
+
+  const capMin = getCustomCapMin(customRules)
 
   return (
     <div className="space-y-6">
@@ -345,7 +347,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                           <span>天，上限</span>
                           <input
                             type="number"
-                            min={0}
+                            min={capMin}
                             max={MAX_ANNUAL_LEAVE_DAYS}
                             step={0.25}
                             value={growthCap}
