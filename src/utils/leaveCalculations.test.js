@@ -17,6 +17,9 @@ import {
   formatPeriodLabel,
   checkLaborLawCompliance,
   NO_CUSTOM_GROWTH,
+  MAX_MILESTONE_MONTHS,
+  MAX_ANNUAL_LEAVE_DAYS,
+  MAX_LEAVE_RECORD_DATES,
 } from './leaveCalculations.js'
 
 // Small helper so test cases read like dates, not Date(y, m-1, d) noise.
@@ -285,6 +288,37 @@ describe('getDaysForMilestone', () => {
       expect(getDaysForMilestone(24, 'custom', custom, growth)).toBe(8)
     })
   })
+
+  describe('MAX_ANNUAL_LEAVE_DAYS clamp (#45)', () => {
+    it('clamps a threshold-path day count that exceeds the ceiling', () => {
+      expect(getDaysForMilestone(12, 'custom', [{ months: 12, days: 500 }])).toBe(MAX_ANNUAL_LEAVE_DAYS)
+    })
+
+    it('clamps a growth-path day count that exceeds the ceiling', () => {
+      const growth = { perYear: 400, cap: 9000 }
+      expect(getDaysForMilestone(132, 'custom', DEFAULT_CUSTOM_RULE_SET, growth)).toBe(MAX_ANNUAL_LEAVE_DAYS)
+    })
+
+    it('returns a value exactly at the ceiling unchanged', () => {
+      expect(getDaysForMilestone(12, 'custom', [{ months: 12, days: MAX_ANNUAL_LEAVE_DAYS }])).toBe(MAX_ANNUAL_LEAVE_DAYS)
+    })
+
+    it('falls back to 0 instead of NaN when stored data is missing a days value', () => {
+      // { months: 12 } normalizes to days: Number(undefined) = NaN, which
+      // would otherwise poison every Math.min comparison and slip through
+      // unclamped.
+      expect(getDaysForMilestone(12, 'custom', [{ months: 12 }])).toBe(0)
+    })
+
+    it('falls back to 0 on the growth path too, not just the threshold path', () => {
+      // Same NaN-from-missing-days hazard as the previous test, but with
+      // growth active (perYear > 0, past the last threshold) so it forces
+      // the *other* Number.isFinite fallback (the one guarding `grown`),
+      // not the threshold-path one above.
+      const growth = { perYear: 1, cap: 30 }
+      expect(getDaysForMilestone(24, 'custom', [{ months: 12 }], growth)).toBe(0)
+    })
+  })
 })
 
 describe('getPeriodInfo', () => {
@@ -396,6 +430,33 @@ describe('getLeaveRecordDates', () => {
       '2026-08-31', '2026-09-01', '2026-09-02',
     ])
   })
+
+  describe('MAX_LEAVE_RECORD_DATES bound (#29)', () => {
+    it('stops at MAX_LEAVE_RECORD_DATES instead of hanging for an absurd day count', () => {
+      expect(getLeaveRecordDates('2026-09-01', 1e6)).toHaveLength(MAX_LEAVE_RECORD_DATES)
+    })
+
+    it('does not truncate a day count exactly at the bound', () => {
+      expect(getLeaveRecordDates('2026-09-01', MAX_LEAVE_RECORD_DATES)).toHaveLength(MAX_LEAVE_RECORD_DATES)
+    })
+
+    it('still yields the full bound when the count is just under it, since the trailing fractional day occupies a date', () => {
+      expect(getLeaveRecordDates('2026-09-01', MAX_LEAVE_RECORD_DATES - 0.5)).toHaveLength(MAX_LEAVE_RECORD_DATES)
+    })
+
+    it.each([
+      ['Infinity', Infinity],
+      ['NaN', NaN],
+      ['a non-numeric string', 'abc'],
+      ['undefined', undefined],
+    ])('returns an empty array for a non-finite day count (%s)', (_label, days) => {
+      expect(getLeaveRecordDates('2026-09-01', days)).toEqual([])
+    })
+
+    it('treats a numeric string the same as the equivalent number', () => {
+      expect(getLeaveRecordDates('2026-09-01', '5')).toEqual(getLeaveRecordDates('2026-09-01', 5))
+    })
+  })
 })
 
 describe('computePeriodLedger', () => {
@@ -500,6 +561,46 @@ describe('validateRecordsChain', () => {
     it('always accepts deleting the earlier record, since it can only free up room in later periods', () => {
       const recordsAfterDelete = initialRecords.filter(r => r.startDate !== '2024-05-01')
       expect(validateRecordsChain(settings, recordsAfterDelete, asOfDate).valid).toBe(true)
+    })
+  })
+
+  describe('MAX_ANNUAL_LEAVE_DAYS clamp bounds the overspend guard (#45)', () => {
+    // Only threshold is 12mo with an absurd day count; without clamping,
+    // the overspend guard below would accept a similarly absurd number of
+    // leave days.
+    const settings = {
+      onboardDate: '2020-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 12, days: 1e6 }],
+      allowCarryover: false,
+    }
+    const asOfDate = d('2021-06-01') // within milestone 12's period
+
+    it('allows spending exactly the clamped entitlement', () => {
+      const records = [{ startDate: '2021-01-15', days: MAX_ANNUAL_LEAVE_DAYS }]
+      expect(validateRecordsChain(settings, records, asOfDate).valid).toBe(true)
+    })
+
+    it('rejects spending 0.25 days beyond the clamped entitlement', () => {
+      const records = [{ startDate: '2021-01-15', days: MAX_ANNUAL_LEAVE_DAYS + 0.25 }]
+      expect(validateRecordsChain(settings, records, asOfDate).valid).toBe(false)
+    })
+  })
+
+  describe('a single record legitimately exceeding 30 days (#30)', () => {
+    it('allows spending up to the combined 90-day allowance once entitlement has plateaued at 30 days/period', () => {
+      // Labor law, onboard 2000-01-01, carryover on, asOf within milestone
+      // 300's period (2025-01-01~2025-12-31), where entitlement has long
+      // plateaued at 30 days/period -- so carryIn, entitledDays and
+      // nextEntitled are each 30. With nothing taken beforehand:
+      // availableTotal = carryIn 30 + entitled 30 - taken, which must be
+      // >= -nextEntitled 30, so taken <= 90.
+      const settings = { onboardDate: '2000-01-01', ruleType: 'labor', customRules: [], allowCarryover: true }
+      const asOfDate = d('2025-06-15')
+      const validRecords = [{ startDate: '2025-06-01', days: 90 }]
+      const invalidRecords = [{ startDate: '2025-06-01', days: 90.25 }]
+      expect(validateRecordsChain(settings, validRecords, asOfDate).valid).toBe(true)
+      expect(validateRecordsChain(settings, invalidRecords, asOfDate).valid).toBe(false)
     })
   })
 
@@ -718,6 +819,21 @@ describe('calculateSummary', () => {
     const current = result.periods.find(p => p.milestoneMonths === 24)
     expect(current.remaining).toBe(-3)
   })
+
+  it('clamps entitledDays at MAX_ANNUAL_LEAVE_DAYS for a settings blob with an absurd custom rule day count (#45)', () => {
+    // Reproduces the #45 report: onboard date far enough in the past that a
+    // custom rule of 1e23 days would otherwise flow straight into the summary.
+    const settings = {
+      onboardDate: '1900-01-01',
+      ruleType: 'custom',
+      customRules: [{ months: 12, days: 1e23 }],
+      allowCarryover: false,
+    }
+    const result = calculateSummary(settings, [], d('2000-01-01'))
+    expect(result.hasLeave).toBe(true)
+    const current = result.periods[result.periods.length - 1]
+    expect(current.entitledDays).toBe(MAX_ANNUAL_LEAVE_DAYS)
+  })
 })
 
 describe('formatPeriodLabel', () => {
@@ -800,7 +916,7 @@ describe('checkLaborLawCompliance', () => {
     expect(warnings[0].fromMonths).toBe(132)
     expect(warnings[0].untilMonths).toBeNull() // still deficient at the clamped horizon
     for (const w of warnings) {
-      expect(w.fromMonths).toBeLessThanOrEqual(1200)
+      expect(w.fromMonths).toBeLessThanOrEqual(MAX_MILESTONE_MONTHS)
     }
   })
 })

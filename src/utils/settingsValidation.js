@@ -1,0 +1,149 @@
+/**
+ * settingsValidation.js
+ *
+ * Pure validation for the settings form, extracted out of Settings.jsx so
+ * boundary cases can be covered by fast unit tests instead of Playwright.
+ */
+
+import { getDaysForMilestone, MAX_MILESTONE_MONTHS, MAX_ANNUAL_LEAVE_DAYS } from './leaveCalculations.js'
+
+/**
+ * Days for the custom rule whose months threshold is the highest (not
+ * necessarily the last element in `customRules`' original order). This is
+ * what the cap must be `>=` -- shared by the save-time validation below and
+ * by Settings.jsx, which uses it to set the cap input's `min`.
+ *
+ * @param {Array<{ months: any, days: any }>} customRules
+ * @returns {number}
+ */
+export function getLastRuleDays(customRules) {
+  const normalizedRules = customRules.map(r => ({
+    ...r,
+    months: Number(r.months),
+    days: Number(r.days),
+  }))
+  const sorted = [...normalizedRules].sort((a, b) => a.months - b.months)
+  return getDaysForMilestone(
+    Math.max(...sorted.map(r => r.months)), 'custom', customRules
+  )
+}
+
+/**
+ * The value to use as the cap input's `min`. Only meaningful when the
+ * highest-threshold rule's days is itself a valid day count (finite, >=
+ * 0.25, a multiple of 0.25) -- e.g. mid-edit it could be blank, negative, or
+ * fractional in a way that isn't a quarter-day step, none of which should be
+ * pinned as a floor. Falls back to 0 in those cases; the real gate against
+ * an invalid cap is still validateSettingsInput below, this only steers the
+ * input's spinner arrows and :invalid state.
+ *
+ * @param {Array<{ months: any, days: any }>} customRules
+ * @returns {number}
+ */
+export function getCustomCapMin(customRules) {
+  const lastDays = getLastRuleDays(customRules)
+  const isValid = Number.isFinite(lastDays) && lastDays >= 0.25 && (lastDays * 4) % 1 === 0
+  return isValid ? lastDays : 0
+}
+
+/**
+ * Validate the settings form before saving.
+ *
+ * Returns the message of the FIRST failing check, or null when everything
+ * is valid. Check order is significant -- see the inline comments.
+ *
+ * Deliberately returns a single message rather than a list: collecting every
+ * error would require deciding how dependent checks interact (e.g. whether
+ * "cap below the last row's days" is meaningful when a row is itself
+ * invalid). That belongs to a future inline-error UI, not to this refactor.
+ *
+ * @param {{
+ *   onboardDate: string,
+ *   ruleType: 'labor' | 'custom',
+ *   customRules: Array<{ months: any, days: any }>,
+ *   growthPerYear: string,  // raw input text
+ *   growthCap: string,      // raw input text
+ * }} input
+ * @returns {string | null}
+ */
+export function validateSettingsInput({ onboardDate, ruleType, customRules, growthPerYear, growthCap }) {
+  if (!onboardDate) {
+    return '請填寫到職日'
+  }
+
+  const normalizedRules = customRules.map(r => ({
+    ...r,
+    months: Number(r.months),
+    days: Number(r.days),
+  }))
+
+  if (ruleType === 'custom') {
+    // This whole block -- including the empty-list guard -- must stay inside
+    // the `ruleType === 'custom'` branch. A user who deleted every custom
+    // rule and then switched back to 'labor' has an empty customRules array
+    // that is irrelevant once ruleType is 'labor'; if the guard ran
+    // unconditionally, they could never save again.
+    if (normalizedRules.length === 0) {
+      return '請至少保留一條自訂規則'
+    }
+
+    // Rows are validated before the growth row so the last row's days is
+    // guaranteed to be <= MAX_ANNUAL_LEAVE_DAYS by the time the cap is checked;
+    // otherwise "cap >= last row" and "cap <= MAX" could both be unsatisfiable.
+    const sorted = [...normalizedRules].sort((a, b) => a.months - b.months)
+    const seenMonths = new Set()
+
+    // Each field's conditions are evaluated as separately named booleans, but
+    // any failure returns ONE message stating the field's full valid range.
+    // With alert() as the only feedback, per-condition messages made users fix
+    // one rule only to be stopped by the next. The named conditions are kept so
+    // a future inline-error UI can report each one individually.
+    for (const r of sorted) {
+      // Reject months beyond the sanity ceiling used by
+      // normalizeCustomThresholds (D14), so a silently-dropped threshold
+      // doesn't look like a successful save.
+      if (!Number.isInteger(r.months) || r.months < 1 || r.months > MAX_MILESTONE_MONTHS) {
+        return `年資門檻請填寫 ${MAX_MILESTONE_MONTHS} 個月（${MAX_MILESTONE_MONTHS / 12} 年）以內的正整數`
+      }
+      if (seenMonths.has(r.months)) {
+        return `年資門檻「${r.months} 個月」重複，請合併或刪除其中一列`
+      }
+      seenMonths.add(r.months)
+
+      const daysIsNumber = Number.isFinite(r.days)
+      const daysIsPositive = daysIsNumber && r.days > 0
+      const daysWithinMax = daysIsNumber && r.days <= MAX_ANNUAL_LEAVE_DAYS
+      const daysIsQuarterStep = daysIsNumber && (r.days * 4) % 1 === 0
+      if (!(daysIsPositive && daysWithinMax && daysIsQuarterStep)) {
+        return `特休天數請填寫大於 0、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`
+      }
+    }
+
+    const growthPerYearNum = Number(growthPerYear)
+    const growthCapNum = Number(growthCap)
+    const perYearIsNumber = growthPerYear !== '' && Number.isFinite(growthPerYearNum)
+    const perYearIsNonNegative = perYearIsNumber && growthPerYearNum >= 0
+    const perYearWithinMax = perYearIsNumber && growthPerYearNum <= MAX_ANNUAL_LEAVE_DAYS
+    const perYearIsQuarterStep = perYearIsNumber && (growthPerYearNum * 4) % 1 === 0
+    if (!(perYearIsNonNegative && perYearWithinMax && perYearIsQuarterStep)) {
+      return `每年增加天數請填寫 0 到 ${MAX_ANNUAL_LEAVE_DAYS} 之間、且為 0.25 的倍數的數字`
+    }
+
+    // Every cap check must stay inside this branch. When perYear is 0 the cap
+    // input is disabled but its state may still hold a stale value (e.g. '9000'
+    // typed before perYear was set to 0); validating it here would block the
+    // save on a field the user cannot edit. The saved cap is 0 in that case.
+    if (growthPerYearNum > 0) {
+      const lastDays = getLastRuleDays(customRules)
+      const capIsNumber = growthCap !== '' && Number.isFinite(growthCapNum)
+      const capAtLeastLastRow = capIsNumber && growthCapNum >= lastDays
+      const capWithinMax = capIsNumber && growthCapNum <= MAX_ANNUAL_LEAVE_DAYS
+      const capIsQuarterStep = capIsNumber && (growthCapNum * 4) % 1 === 0
+      if (!(capAtLeastLastRow && capWithinMax && capIsQuarterStep)) {
+        return `天數上限請填寫不低於 ${lastDays}（最後一列的天數）、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`
+      }
+    }
+  }
+
+  return null
+}

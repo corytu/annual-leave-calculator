@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { freezeTime, seedAppStorage } from './helpers.js'
+import { MAX_ANNUAL_LEAVE_DAYS } from '../src/utils/leaveCalculations.js'
 
 test.describe('首次使用與設定流程', () => {
   test.beforeEach(async ({ page }) => {
@@ -171,6 +172,9 @@ test.describe('特休規則設定', () => {
     await daysInput.pressSequentially('4.75')
 
     await expect(daysInput).toHaveValue('4.75')
+    // min/max mirror validateSettingsInput's actual bounds (#30).
+    await expect(daysInput).toHaveAttribute('min', '0.25')
+    await expect(daysInput).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
   })
 
   test('每年可休天數輸入框：只打了負號就直接儲存時顯示錯誤，不允許存檔', async ({ page }) => {
@@ -192,7 +196,7 @@ test.describe('特休規則設定', () => {
     })
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    expect(alertMessage).toBe('特休天數請填寫大於 0 的數字')
+    expect(alertMessage).toBe(`特休天數請填寫大於 0、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
     // Still on the settings page -- the save was blocked, nothing persisted.
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
@@ -248,6 +252,14 @@ test.describe('特休規則設定', () => {
     await expect(page.getByLabel('天數上限')).toBeDisabled()
     await expect(page.getByLabel('天數上限')).toHaveCSS('cursor', 'not-allowed')
     await expect(page.getByLabel('每年增加天數')).not.toHaveCSS('cursor', 'not-allowed')
+
+    // min/max mirror validateSettingsInput's actual bounds (#30).
+    await expect(page.getByLabel('每年增加天數')).toHaveAttribute('min', '0')
+    await expect(page.getByLabel('每年增加天數')).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
+    // capMin follows the highest-threshold row's days; with DEFAULT_CUSTOM_RULES
+    // that row is 120 months / 16 days.
+    await expect(page.getByLabel('天數上限')).toHaveAttribute('min', '16')
+    await expect(page.getByLabel('天數上限')).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
   })
 
   test('每年增加天數留空時無法儲存並顯示錯誤', async ({ page }) => {
@@ -263,7 +275,7 @@ test.describe('特休規則設定', () => {
     })
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    expect(alertMessage).toBe('每年增加天數請填寫大於等於 0、且為 0.25 的倍數的數字')
+    expect(alertMessage).toBe(`每年增加天數請填寫 0 到 ${MAX_ANNUAL_LEAVE_DAYS} 之間、且為 0.25 的倍數的數字`)
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
 
@@ -281,7 +293,7 @@ test.describe('特休規則設定', () => {
     })
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    expect(alertMessage).toBe('天數上限不可低於最後一列的天數（16 天）')
+    expect(alertMessage).toBe(`天數上限請填寫不低於 16（最後一列的天數）、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
 
@@ -298,7 +310,7 @@ test.describe('特休規則設定', () => {
     })
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    expect(alertMessage).toBe('天數上限請填寫 0.25 的倍數')
+    expect(alertMessage).toBe(`天數上限請填寫不低於 16（最後一列的天數）、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
   })
 
@@ -313,6 +325,69 @@ test.describe('特休規則設定', () => {
     await page.getByRole('button', { name: '儲存設定' }).click()
 
     await expect(page.getByTestId('summary-entitled')).toContainText('17')
+  })
+
+  test('特休天數、每年增加天數、天數上限都填上限值可以儲存 (#45)', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const lastRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="120"]') })
+    await lastRow.locator('input[step="0.25"]').fill(String(MAX_ANNUAL_LEAVE_DAYS))
+    await page.getByLabel('每年增加天數').fill(String(MAX_ANNUAL_LEAVE_DAYS))
+    await page.getByLabel('天數上限').fill(String(MAX_ANNUAL_LEAVE_DAYS))
+    // Onboard date exactly 120 months (10 years) before frozen "today"
+    // (2025-06-15) -> current milestone is exactly the last row's own
+    // threshold, so its days apply directly with no growth involved yet.
+    await page.locator('input[type="date"]').fill('2015-06-15')
+
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    // Back on the main page -- save succeeded, no alert fired.
+    await expect(page.getByText('到職日：')).toBeVisible()
+    await expect(page.getByTestId('summary-entitled')).toContainText(String(MAX_ANNUAL_LEAVE_DAYS))
+  })
+
+  test('特休天數超過上限時無法儲存並顯示錯誤 (#45)', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const lastRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="120"]') })
+    await lastRow.locator('input[step="0.25"]').fill(String(MAX_ANNUAL_LEAVE_DAYS + 0.1))
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let alertMessage = ''
+    page.once('dialog', dialog => {
+      alertMessage = dialog.message()
+      dialog.accept()
+    })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    expect(alertMessage).toBe(`特休天數請填寫大於 0、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
+    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+  })
+
+  test('每年增加天數改回 0 後可以儲存，且天數上限一併存為 0 (C4)', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Default growth is prefilled at perYear 1 / cap 30. Type a stale cap
+    // value first, then zero out perYear -- the disabled cap field's stale
+    // state must not block the save (C4).
+    await page.getByLabel('天數上限').fill('9000')
+    await page.getByLabel('每年增加天數').fill('0')
+    await page.locator('input[type="date"]').fill('2024-06-15')
+
+    let dialogFired = false
+    page.once('dialog', dialog => { dialogFired = true; dialog.accept() })
+    await page.getByRole('button', { name: '儲存設定' }).click()
+
+    // Back on the main page -- no alert, save succeeded.
+    await expect(page.getByText('到職日：')).toBeVisible()
+    expect(dialogFired).toBe(false)
+
+    // The disabled cap field's stale '9000' must not have been persisted --
+    // Settings.jsx saves cap as 0 whenever perYear is 0 (C4).
+    const storedSettings = await page.evaluate(
+      () => JSON.parse(window.localStorage.getItem('leaveCalculator_settings'))
+    )
+    expect(storedSettings.customGrowth).toEqual({ perYear: 0, cap: 0 })
   })
 
   test('公司另有規定使用預設門檻時，滿 4 年後仍是 12 個月一期', async ({ page }) => {
@@ -362,5 +437,41 @@ test.describe('既有資料相容性（#19 切點重新分配）', () => {
 
     await expect(page.getByTestId('summary-entitled')).toBeVisible()
     await expect(page.getByTestId('summary-remaining')).toContainText('-3')
+  })
+})
+
+// Another separate top-level describe, for the same reason as above: this
+// test needs settings seeded before first navigation, which the locked
+// '特休規則設定' describe's beforeEach doesn't support.
+test.describe('舊資料的荒謬天數設定會被夾值 (#45)', () => {
+  test('儲存於上限修正前的荒謬規則天數，首頁額度顯示為 MAX_ANNUAL_LEAVE_DAYS', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, {
+      settings: {
+        onboardDate: '2000-01-01',
+        ruleType: 'custom',
+        customRules: [{ id: 'c1', months: 6, days: 1e23 }],
+        allowCarryover: false,
+      },
+    })
+    await page.goto('/')
+
+    await expect(page.getByTestId('summary-entitled')).toContainText(String(MAX_ANNUAL_LEAVE_DAYS))
+  })
+
+  test('舊資料缺少 days 欄位且成長規則啟用時，首頁額度顯示為 0 而非 NaN', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, {
+      settings: {
+        onboardDate: '2000-01-01',
+        ruleType: 'custom',
+        customRules: [{ id: 'c1', months: 6 }], // missing `days` -> NaN
+        customGrowth: { perYear: 1, cap: 30 },
+        allowCarryover: false,
+      },
+    })
+    await page.goto('/')
+
+    await expect(page.getByTestId('summary-entitled')).toContainText('0')
   })
 })

@@ -109,10 +109,13 @@ export default function LeaveForm({
           <div>
             <label className="block text-xs text-stone-500 mb-1">天數</label>
             <div className="flex gap-1.5">
+              {/* No `max` on purpose: the real per-record ceiling is dynamic
+                  (carry-in + this period's entitlement + the next period's
+                  advance) and is enforced by validateRecordsChain in
+                  validate(). A fixed max here would only mislead (#30). */}
               <input
                 type="number"
                 min={0.25}
-                max={30}
                 step={0.25}
                 value={days}
                 onChange={e => { setDays(e.target.value); setError('') }}

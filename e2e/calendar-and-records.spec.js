@@ -149,12 +149,16 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     await expect(page.getByText('本週年度尚無請假記錄')).toBeVisible()
   })
 
-  test('天數輸入框：清空欄位不會被強制填回 0', async ({ page }) => {
+  test('天數輸入框：清空欄位不會被強制填回 0，且沒有 max 屬性 (#30)', async ({ page }) => {
     const daysInput = page.locator('input[type="number"]').first()
     await daysInput.fill('3')
     await daysInput.fill('')
 
     await expect(daysInput).toHaveValue('')
+    // No max attribute on purpose: the real per-record ceiling is dynamic
+    // (carry-in + this period's entitlement + the next period's advance),
+    // not a fixed number (#30).
+    await expect(daysInput).not.toHaveAttribute('max')
   })
 
   test('天數輸入框：可以逐字元打出完整的小數（不會在打出小數點時被吃掉）', async ({ page }) => {
@@ -165,10 +169,54 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     await expect(daysInput).toHaveValue('4.75')
   })
 
+  test('超過 30 天的請假可以新增 (#30)', async ({ page }) => {
+    // Override the default beforeEach seeding with an onboard date old
+    // enough for entitlement to have plateaued at 30 days/period with
+    // carryover enabled, so a single record can legitimately exceed 30 days.
+    // asOf (frozen "today" 2025-06-15) falls in milestone 300's period
+    // (2025-01-01 ~ 2025-12-31), entitled 30 days.
+    await seedAppStorage(page, {
+      settings: { ...BASE_SETTINGS, onboardDate: '2000-01-01', allowCarryover: true },
+      records: [],
+    })
+    await page.reload()
+
+    await page.locator('input[type="date"]').fill('2025-06-01')
+    await page.locator('input[type="number"]').first().fill('45')
+    await page.getByRole('button', { name: '新增', exact: true }).click()
+
+    await expect(page.getByText('2025-06-01')).toBeVisible()
+    await expect(page.getByTestId('summary-taken')).toContainText('45')
+  })
+
   test('月曆說明揭露圓點未考慮國定假日與補班日', async ({ page }) => {
     // Only match the keyword, not the full sentence, so a copy tweak doesn't
     // break this test.
     await expect(page.getByTestId('calendar-holiday-note')).toContainText('國定假日')
+  })
+})
+
+test.describe('壞資料健壯性 (#29)', () => {
+  test('請假天數為荒謬大值的記錄不會讓月曆凍結，摘要如實顯示超支', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, {
+      settings: BASE_SETTINGS,
+      records: [{ id: 'r1', startDate: '2025-06-20', days: 1e6 }],
+    })
+    await page.goto('/')
+
+    // If MAX_LEAVE_RECORD_DATES did not bound the expansion loop, the
+    // calendar's render would hang and this assertion would time out.
+    await expect(page.getByTestId('summary-entitled')).toBeVisible()
+    // getLeaveTakenInPeriod sums the raw days directly, so the summary
+    // still reports the full (absurd) overspend -- only calendar dots are
+    // bounded, not the reported total (7-day entitlement - 1,000,000 taken).
+    await expect(page.getByTestId('summary-remaining')).toContainText('-999993')
+    // The clamp only bounds how many dates get dotted, not whether dotting
+    // still works at all -- confirm the record's first day (2025-06-20, a
+    // Friday) is actually marked, not just that render didn't hang.
+    const tile20 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 20 }) + ' 已登記請假', exact: true })
+    await expect(tile20.locator('.leave-dot')).toBeVisible()
   })
 })
 

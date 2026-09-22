@@ -118,6 +118,25 @@ describe('buildBackupCsv', () => {
     ])
   })
 
+  it('exports a rule row\'s raw stored days value, uncapped by MAX_ANNUAL_LEAVE_DAYS (#45, C9)', () => {
+    // Settings saved before #45 could hold an absurd day count. A backup
+    // should reflect the raw stored data, not the clamped calculated value
+    // (which is what settlementDays below already is).
+    const settings = {
+      onboardDate: '2023-06-15',
+      ruleType: 'custom',
+      customRules: [{ id: 'a', months: 12, days: 1e23 }],
+      allowCarryover: false,
+      customGrowth: { perYear: 0, cap: 0 },
+    }
+    const summary = { hasLeave: true, periods: [{ remaining: 365 }] }
+
+    const csv = buildBackupCsv(settings, [], summary)
+
+    // JS formats 1e23 as '1e+23' when interpolated into a template string.
+    expect(csv).toContain('12,1e+23')
+  })
+
   it('defaults to no-growth when customGrowth is missing from settings (pre-#35 data)', () => {
     const settings = {
       onboardDate: '2023-06-15',

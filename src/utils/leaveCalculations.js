@@ -117,7 +117,35 @@ function buildLaborLawMilestones(upToMonths) {
 // Sanity ceiling for any month-threshold value. Bounds the gap-fill loop
 // below (a huge gap between two thresholds would otherwise iterate millions
 // of times) and is reused by checkLaborLawCompliance's horizon clamp (#20).
-const MAX_MILESTONE_MONTHS = 1200; // 100 years
+export const MAX_MILESTONE_MONTHS = 1200; // 100 years
+
+// Sanity ceiling for any entitlement value -- a single custom rule's days,
+// the growth row's perYear and its cap. Rejects absurd input only; NOT a
+// precise physical limit (a period can be shorter than 12 months, so even
+// 260 weekdays isn't exact either). 365 makes the error message
+// self-explanatory. Don't "correct" it to 260 (#45).
+//
+// Enforced in two places: validateSettingsInput() rejects new input with a
+// message, and getDaysForMilestone() silently clamps values saved before
+// this limit existed.
+//
+// Known consequence of the clamp (accepted tradeoff, not a bug): a user whose
+// pre-#45 settings granted an absurd entitlement (e.g. 1e23 days) and who
+// already logged leave close to that old entitlement will, after this clamp
+// takes effect, permanently look overspent for that period -- their real
+// `days` total still exceeds the clamped 365. validateRecordsChain checks the
+// whole ledger, so it will then reject *every* new or edited record, not just
+// ones touching the offending period, and the settings page is locked once
+// onboardDate is saved, so they cannot lower the rule to fix it either. The
+// only in-app fix is switching to that period's tab and deleting or shrinking
+// the offending record: deletion (LeaveForm.jsx's RecordRow -> onDelete)
+// never goes through validateRecordsChain, and editing validates the
+// post-edit candidateRecords, so shrinking the record to within the clamped
+// entitlement also passes. The cost is losing the leave logged under the old
+// rule. Migrating stored data or scoping validateRecordsChain to only the
+// periods a given edit touches would both avoid that cost, but are out of
+// scope here -- see docs/reviews/83e5a17-annual-leave-cap-concept-plan.md §9.
+export const MAX_ANNUAL_LEAVE_DAYS = 365;
 
 /**
  * Clean user-entered thresholds into sorted, de-duplicated positive integers
@@ -196,9 +224,22 @@ export function getDaysForMilestone(milestoneMonths, ruleType, customRules, cust
     const { perYear, cap } = normalizeCustomGrowth(customGrowth);
     if (perYear > 0 && milestoneMonths > lastRule.months) {
       const k = Math.floor((milestoneMonths - lastRule.months) / 12);
-      return Math.min(lastRule.days + perYear * k, Math.max(cap, lastRule.days));
+      const grown = Math.min(
+        lastRule.days + perYear * k,
+        Math.max(cap, lastRule.days),
+        MAX_ANNUAL_LEAVE_DAYS,
+      );
+      // NaN poisons every Math.min/Math.max comparison (all comparisons
+      // involving NaN are false), so corrupt stored data -- e.g. a rule
+      // missing `days`, normalized to Number(undefined) = NaN -- would
+      // otherwise slip through unclamped instead of being caught here.
+      // Falling back to 0 keeps the safe direction: an entitlement of 0
+      // cannot cause the overspend hole #45 closes, while falling back to
+      // MAX_ANNUAL_LEAVE_DAYS would just recreate a smaller version of it.
+      return Number.isFinite(grown) ? grown : 0;
     }
-    return days;
+    const clamped = Math.min(days, MAX_ANNUAL_LEAVE_DAYS);
+    return Number.isFinite(clamped) ? clamped : 0;
   }
   return getLaborLawDays(milestoneMonths);
 }
@@ -301,6 +342,20 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
 
 // ─── Leave-record helpers ────────────────────────────────────────────────────
 
+// Upper bound on how many dates one leave record can expand to on the
+// calendar. The overspend guard caps a single period's total leave at
+// carry-in (<= the previous period's entitlement) + this period's
+// entitlement + the next period's advance, each <= MAX_ANNUAL_LEAVE_DAYS.
+// A fractional trailing day still occupies a date, so a valid record yields
+// at most ceil(days) <= 3 * MAX_ANNUAL_LEAVE_DAYS dates and is never
+// truncated. Anything longer is corrupt data (e.g. hand-edited localStorage,
+// or records saved before #45), and without this bound the loop below would
+// freeze the tab during LeaveCalendar's render (#29).
+//
+// A module constant rather than a function parameter, so no caller can
+// pass a larger value and bypass the guard. Exported for tests only.
+export const MAX_LEAVE_RECORD_DATES = 3 * MAX_ANNUAL_LEAVE_DAYS;
+
 /**
  * Expand a leave record's startDate + days into the list of calendar dates
  * it actually spans, skipping Saturdays and Sundays. Each weekday consumes
@@ -308,13 +363,21 @@ export function getPeriodContainingDate(onboardDate, date, ruleType, customRules
  *
  * Only Saturdays/Sundays are skipped -- national holidays and their
  * compensatory workdays (補班日) are not taken into account (#33).
+ *
+ * Bounded by MAX_LEAVE_RECORD_DATES (#29); this only affects calendar dots --
+ * getLeaveTakenInPeriod sums the raw `days` value directly, so a corrupt
+ * record still shows up as an overspend in the summary (not silently hidden).
  */
 export function getLeaveRecordDates(startDate, days) {
   const start = typeof startDate === 'string' ? parseLocalDate(startDate) : startDate;
   const cursor = new Date(start);
   const dates = [];
-  let remaining = days;
-  while (remaining > 0) {
+  let remaining = Number(days);
+  // A non-finite day count (NaN, Infinity) means the record is corrupt, so
+  // mark nothing rather than guess. The bound below would already stop the
+  // loop; this check exists to make that intent explicit.
+  if (!Number.isFinite(remaining)) return dates;
+  while (remaining > 0 && dates.length < MAX_LEAVE_RECORD_DATES) {
     const dow = cursor.getDay();
     if (dow !== 0 && dow !== 6) {
       dates.push(toISODateString(cursor));
