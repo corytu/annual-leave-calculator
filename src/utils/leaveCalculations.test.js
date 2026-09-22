@@ -309,6 +309,15 @@ describe('getDaysForMilestone', () => {
       // unclamped.
       expect(getDaysForMilestone(12, 'custom', [{ months: 12 }])).toBe(0)
     })
+
+    it('falls back to 0 on the growth path too, not just the threshold path', () => {
+      // Same NaN-from-missing-days hazard as the previous test, but with
+      // growth active (perYear > 0, past the last threshold) so it forces
+      // the *other* Number.isFinite fallback (the one guarding `grown`),
+      // not the threshold-path one above.
+      const growth = { perYear: 1, cap: 30 }
+      expect(getDaysForMilestone(24, 'custom', [{ months: 12 }], growth)).toBe(0)
+    })
   })
 })
 

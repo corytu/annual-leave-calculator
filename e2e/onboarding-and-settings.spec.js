@@ -458,4 +458,20 @@ test.describe('舊資料的荒謬天數設定會被夾值 (#45)', () => {
 
     await expect(page.getByTestId('summary-entitled')).toContainText(String(MAX_ANNUAL_LEAVE_DAYS))
   })
+
+  test('舊資料缺少 days 欄位且成長規則啟用時，首頁額度顯示為 0 而非 NaN', async ({ page }) => {
+    await freezeTime(page)
+    await seedAppStorage(page, {
+      settings: {
+        onboardDate: '2000-01-01',
+        ruleType: 'custom',
+        customRules: [{ id: 'c1', months: 6 }], // missing `days` -> NaN
+        customGrowth: { perYear: 1, cap: 30 },
+        allowCarryover: false,
+      },
+    })
+    await page.goto('/')
+
+    await expect(page.getByTestId('summary-entitled')).toContainText('0')
+  })
 })
