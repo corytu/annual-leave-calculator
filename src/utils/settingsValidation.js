@@ -77,12 +77,6 @@ export function validateSettingsInput({ onboardDate, ruleType, customRules, grow
     days: Number(r.days),
   }))
 
-  // growthPerYearNum/growthCapNum are declared here, outside every branch,
-  // because both the validation below and the onSave(...) payload built by
-  // the caller need them in scope.
-  const growthPerYearNum = Number(growthPerYear)
-  const growthCapNum = Number(growthCap)
-
   if (ruleType === 'custom') {
     // This whole block -- including the empty-list guard -- must stay inside
     // the `ruleType === 'custom'` branch. A user who deleted every custom
@@ -125,6 +119,8 @@ export function validateSettingsInput({ onboardDate, ruleType, customRules, grow
       }
     }
 
+    const growthPerYearNum = Number(growthPerYear)
+    const growthCapNum = Number(growthCap)
     const perYearIsNumber = growthPerYear !== '' && Number.isFinite(growthPerYearNum)
     const perYearIsNonNegative = perYearIsNumber && growthPerYearNum >= 0
     const perYearWithinMax = perYearIsNumber && growthPerYearNum <= MAX_ANNUAL_LEAVE_DAYS
