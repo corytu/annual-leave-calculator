@@ -17,7 +17,7 @@ npm run dev
 
 ## 開發流程
 
-1. 從 `master` 建立新分支進行修改
+1. Fork 本專案，並從 `master` 建立新分支進行修改
 2. Commit 訊息採祈使句、簡短描述變更即可（例如 `Fix growth-row threshold consistency`），不需要 Conventional Commits 前綴
 3. 推送分支並開啟 Pull Request，目標分支為 `master`
 
