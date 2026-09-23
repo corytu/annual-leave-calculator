@@ -70,7 +70,7 @@ fi
 ### ---- 設定區 ----
 
 CODER_MODEL="claude-sonnet-5"
-REVIEWER_MODEL="claude-opus-5"
+REVIEWER_MODEL="claude-opus-5-5"
 CODER_EFFORT="high"
 REVIEWER_EFFORT="high"
 MAX_ROUNDS=5
