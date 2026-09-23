@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { freezeTime, seedAppStorage } from './helpers.js'
-import { MAX_ANNUAL_LEAVE_DAYS } from '../src/utils/leaveCalculations.js'
+import { MAX_ANNUAL_LEAVE_DAYS, MAX_MILESTONE_MONTHS } from '../src/utils/leaveCalculations.js'
 
 test.describe('首次使用與設定流程', () => {
   test.beforeEach(async ({ page }) => {
@@ -109,25 +109,24 @@ test.describe('特休規則設定', () => {
     await expect(rows).toHaveCount(before - 1)
   })
 
-  test('自訂門檻重複時無法儲存並顯示明確錯誤', async ({ page }) => {
+  test('自訂門檻重複時，集中清單顯示錯誤（只 blur 其中一列，恰好顯示 1 行）', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 
     // The default rows include a 12-month threshold; retarget the 6-month
     // row's threshold to 12 so two rows now share the same months value.
     const row = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
-    await row.locator('input[step="1"]').fill('12')
+    const monthsInput = row.locator('input[step="1"]')
+    await monthsInput.fill('12')
+    await monthsInput.blur()
 
-    await page.locator('input[type="date"]').fill('2024-06-15')
-
-    let alertMessage = ''
-    page.once('dialog', dialog => {
-      alertMessage = dialog.message()
-      dialog.accept()
-    })
-    await page.getByRole('button', { name: '儲存設定' }).click()
-
-    expect(alertMessage).toBe('年資門檻「12 個月」重複，請合併或刪除其中一列')
-    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+    // Both rows independently carry the warning (see settingsValidation.test.js's
+    // unit coverage), but the two rows' warnings share the same dedupeKey, so
+    // the centralized list only ever shows ONE representative line -- not one
+    // per row -- regardless of how many of the two rows have been touched.
+    const formWarnings = page.getByTestId('settings-form-warnings')
+    await expect(formWarnings.getByText('年資門檻「12 個月」重複，請合併或刪除其中一列', { exact: true })).toBeVisible()
+    await expect(formWarnings.locator('p')).toHaveCount(1)
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
   })
 
   test('自訂規則只剩一列時刪除按鈕為 disabled', async ({ page }) => {
@@ -144,23 +143,21 @@ test.describe('特休規則設定', () => {
     await expect(rows.first().getByRole('button', { name: '刪除此規則' })).toBeDisabled()
   })
 
-  test('年資門檻超過安全上限時無法儲存', async ({ page }) => {
+  test('年資門檻超過安全上限時顯示錯誤', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 
-    const row = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
-    await row.locator('input[step="1"]').fill('1201')
+    // Scoped to a page-level assertion rather than the row itself: the row
+    // is located by its current months value (input[value="6"]), which this
+    // very edit changes -- re-querying the row locator after the fill would
+    // no longer match it.
+    const monthsInput = page.getByTestId('custom-rule-row')
+      .filter({ has: page.locator('input[value="6"]') })
+      .locator('input[step="1"]')
+    await monthsInput.fill('1201')
+    await monthsInput.blur()
 
-    await page.locator('input[type="date"]').fill('2024-06-15')
-
-    let alertMessage = ''
-    page.once('dialog', dialog => {
-      alertMessage = dialog.message()
-      dialog.accept()
-    })
-    await page.getByRole('button', { name: '儲存設定' }).click()
-
-    expect(alertMessage).toBe('年資門檻請填寫 1200 個月（100 年）以內的正整數')
-    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+    await expect(page.getByText('年資門檻請填寫 1200 個月（100 年）以內的正整數', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
   })
 
   test('每年可休天數輸入框：可以逐字元打出完整的小數（不會在打出小數點時被吃掉）', async ({ page }) => {
@@ -177,28 +174,21 @@ test.describe('特休規則設定', () => {
     await expect(daysInput).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
   })
 
-  test('每年可休天數輸入框：只打了負號就直接儲存時顯示錯誤，不允許存檔', async ({ page }) => {
+  test('每年可休天數輸入框：只打了負號並 blur 時顯示「請填寫天數」（瀏覽器層級回報空字串，屬於 incomplete）', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 
-    const row = page.locator('table tbody tr').filter({ has: page.locator('input[value="12"]') })
+    const row = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="12"]') })
     const daysInput = row.locator('input[step="0.25"]')
     await daysInput.fill('')
     // Typed character-by-character so it goes through the same real-input
     // path as a user leaving the field mid-way through typing a number.
+    // A lone "-" is an invalid intermediate number state, so the browser
+    // itself reports the input's .value as an empty string.
     await daysInput.pressSequentially('-')
+    await daysInput.blur()
 
-    await page.locator('input[type="date"]').fill('2024-06-15')
-
-    let alertMessage = ''
-    page.once('dialog', dialog => {
-      alertMessage = dialog.message()
-      dialog.accept()
-    })
-    await page.getByRole('button', { name: '儲存設定' }).click()
-
-    expect(alertMessage).toBe(`特休天數請填寫大於 0、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
-    // Still on the settings page -- the save was blocked, nothing persisted.
-    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+    await expect(row.getByText('請填寫天數', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
   })
 
   test('儲存自訂規則後首頁天數依自訂規則顯示', async ({ page }) => {
@@ -262,56 +252,38 @@ test.describe('特休規則設定', () => {
     await expect(page.getByLabel('天數上限')).toHaveAttribute('max', String(MAX_ANNUAL_LEAVE_DAYS))
   })
 
-  test('每年增加天數留空時無法儲存並顯示錯誤', async ({ page }) => {
+  test('每年增加天數留空時顯示「請填寫每年增加天數」', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 
-    await page.getByLabel('每年增加天數').fill('')
-    await page.locator('input[type="date"]').fill('2024-06-15')
+    const perYearInput = page.getByLabel('每年增加天數')
+    await perYearInput.fill('')
+    await perYearInput.blur()
 
-    let alertMessage = ''
-    page.once('dialog', dialog => {
-      alertMessage = dialog.message()
-      dialog.accept()
-    })
-    await page.getByRole('button', { name: '儲存設定' }).click()
-
-    expect(alertMessage).toBe(`每年增加天數請填寫 0 到 ${MAX_ANNUAL_LEAVE_DAYS} 之間、且為 0.25 的倍數的數字`)
-    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+    await expect(page.getByText('請填寫每年增加天數', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
   })
 
-  test('天數上限低於最後一列天數時無法儲存並顯示錯誤', async ({ page }) => {
+  test('天數上限低於最後一列天數時顯示錯誤', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 
     // Default growth per-year is prefilled at 1; last row's days is 16.
-    await page.getByLabel('天數上限').fill('10')
-    await page.locator('input[type="date"]').fill('2024-06-15')
+    const capInput = page.getByLabel('天數上限')
+    await capInput.fill('10')
+    await capInput.blur()
 
-    let alertMessage = ''
-    page.once('dialog', dialog => {
-      alertMessage = dialog.message()
-      dialog.accept()
-    })
-    await page.getByRole('button', { name: '儲存設定' }).click()
-
-    expect(alertMessage).toBe(`天數上限請填寫不低於 16（最後一列的天數）、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
-    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+    await expect(page.getByText('天數上限不可低於最後一列的天數（16 天）', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
   })
 
-  test('天數上限非 0.25 倍數時無法儲存並顯示錯誤', async ({ page }) => {
+  test('天數上限非 0.25 倍數時顯示錯誤', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 
-    await page.getByLabel('天數上限').fill('20.1')
-    await page.locator('input[type="date"]').fill('2024-06-15')
+    const capInput = page.getByLabel('天數上限')
+    await capInput.fill('20.1')
+    await capInput.blur()
 
-    let alertMessage = ''
-    page.once('dialog', dialog => {
-      alertMessage = dialog.message()
-      dialog.accept()
-    })
-    await page.getByRole('button', { name: '儲存設定' }).click()
-
-    expect(alertMessage).toBe(`天數上限請填寫不低於 16（最後一列的天數）、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
-    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+    await expect(page.getByText('天數上限須為 0.25 的倍數', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
   })
 
   test('成長設定儲存後首頁天數套用逐年成長', async ({ page }) => {
@@ -346,22 +318,17 @@ test.describe('特休規則設定', () => {
     await expect(page.getByTestId('summary-entitled')).toContainText(String(MAX_ANNUAL_LEAVE_DAYS))
   })
 
-  test('特休天數超過上限時無法儲存並顯示錯誤 (#45)', async ({ page }) => {
+  test('特休天數超過上限且非 0.25 倍數時，兩則錯誤同時顯示 (#45, W4)', async ({ page }) => {
     await page.getByRole('button', { name: '公司另有規定' }).click()
 
     const lastRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="120"]') })
-    await lastRow.locator('input[step="0.25"]').fill(String(MAX_ANNUAL_LEAVE_DAYS + 0.1))
-    await page.locator('input[type="date"]').fill('2024-06-15')
+    const daysInput = lastRow.locator('input[step="0.25"]')
+    await daysInput.fill(String(MAX_ANNUAL_LEAVE_DAYS + 0.1))
+    await daysInput.blur()
 
-    let alertMessage = ''
-    page.once('dialog', dialog => {
-      alertMessage = dialog.message()
-      dialog.accept()
-    })
-    await page.getByRole('button', { name: '儲存設定' }).click()
-
-    expect(alertMessage).toBe(`特休天數請填寫大於 0、不超過 ${MAX_ANNUAL_LEAVE_DAYS}、且為 0.25 的倍數的數字`)
-    await expect(page.getByRole('heading', { name: '設定' })).toBeVisible()
+    await expect(lastRow.getByText(`天數不可超過 ${MAX_ANNUAL_LEAVE_DAYS} 天`, { exact: true })).toBeVisible()
+    await expect(lastRow.getByText('天數須為 0.25 的倍數', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
   })
 
   test('每年增加天數改回 0 後可以儲存，且天數上限一併存為 0 (C4)', async ({ page }) => {
@@ -374,13 +341,11 @@ test.describe('特休規則設定', () => {
     await page.getByLabel('每年增加天數').fill('0')
     await page.locator('input[type="date"]').fill('2024-06-15')
 
-    let dialogFired = false
-    page.once('dialog', dialog => { dialogFired = true; dialog.accept() })
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeEnabled()
     await page.getByRole('button', { name: '儲存設定' }).click()
 
-    // Back on the main page -- no alert, save succeeded.
+    // Back on the main page -- save succeeded.
     await expect(page.getByText('到職日：')).toBeVisible()
-    expect(dialogFired).toBe(false)
 
     // The disabled cap field's stale '9000' must not have been persisted --
     // Settings.jsx saves cap as 0 whenever perYear is 0 (C4).
@@ -408,6 +373,149 @@ test.describe('特休規則設定', () => {
     await expect(page.getByTestId('summary-entitled')).toContainText('14')
     await expect(page.getByTestId('period-tabs').getByRole('button')).toHaveCount(5)
     await expect(page.getByTestId('period-tabs').getByRole('button').first()).toHaveText('2025–26')
+  })
+
+  test('到職日留空但已 blur 過時，顯示「請填寫到職日」', async ({ page }) => {
+    // Positive case first: covers the touched filter -- disabled but no
+    // message before any interaction with the date field.
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
+    await expect(page.getByText('請填寫到職日')).toHaveCount(0)
+
+    // Not "fill nothing then click save" -- the save button starts disabled
+    // and stays disabled with an empty onboard date, so .click() would just
+    // time out waiting for it to become enabled, and even if it could be
+    // clicked, that click wouldn't mark onboardDate touched (only the date
+    // input's own onBlur does).
+    const dateInput = page.locator('input[type="date"]')
+    await dateInput.focus()
+    await dateInput.blur()
+
+    await expect(page.getByText('請填寫到職日', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
+  })
+
+  test('ruleType 切換時，儲存按鈕與合規清單立即反映新的 ruleType，不需要額外互動 (C1)', async ({ page }) => {
+    await page.locator('input[type="date"]').fill('2024-06-15')
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const lastRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="120"]') })
+    const daysInput = lastRow.locator('input[step="0.25"]')
+    await daysInput.fill('')
+    await daysInput.blur()
+
+    await expect(lastRow.getByText('請填寫天數', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
+
+    // Switching to 'labor' bypasses every custom-only check immediately --
+    // no further interaction with the (now unmounted) custom rows needed.
+    await page.getByRole('button', { name: '按勞基法第38條' }).click()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeEnabled()
+
+    // Switching back to 'custom' brings the same (already-touched) error
+    // back immediately too.
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
+  })
+
+  test('兩組不同數值的重複門檻各自在集中清單顯示一行 (C3)', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Retarget 6mo -> 12mo (duplicates the existing 12mo row) and
+    // 36mo -> 24mo (duplicates the existing 24mo row): two independent
+    // duplicate groups with different threshold values, each with its own
+    // dedupeKey -- unlike the single-group case above, both lines should
+    // show up in the centralized list.
+    const sixMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    const sixMonthsInput = sixMonthRow.locator('input[step="1"]')
+    await sixMonthsInput.fill('12')
+    await sixMonthsInput.blur()
+
+    const thirtySixMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="36"]') })
+    const thirtySixMonthsInput = thirtySixMonthRow.locator('input[step="1"]')
+    await thirtySixMonthsInput.fill('24')
+    await thirtySixMonthsInput.blur()
+
+    const formWarnings = page.getByTestId('settings-form-warnings')
+    await expect(formWarnings.getByText('年資門檻「12 個月」重複，請合併或刪除其中一列', { exact: true })).toBeVisible()
+    await expect(formWarnings.getByText('年資門檻「24 個月」重複，請合併或刪除其中一列', { exact: true })).toBeVisible()
+    await expect(formWarnings.locator('p')).toHaveCount(2)
+  })
+
+  test('B2 回歸：某列年資門檻不合法時，天數上限欄位不顯示帶著無意義數值的「不可低於」訊息', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const sixMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    const monthsInput = sixMonthRow.locator('input[step="1"]')
+    await monthsInput.fill('')
+    await monthsInput.blur()
+
+    const capInput = page.getByLabel('天數上限')
+    await capInput.fill('10')
+    await capInput.blur()
+
+    await expect(page.getByText(/天數上限不可低於最後一列的天數/)).toHaveCount(0)
+  })
+
+  test('B2 回歸：最後一列天數本身不合法時，天數上限欄位不顯示帶著無意義數值的「不可低於」訊息', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const lastRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="120"]') })
+    const daysInput = lastRow.locator('input[step="0.25"]')
+    await daysInput.fill('-5')
+    await daysInput.blur()
+
+    const capInput = page.getByLabel('天數上限')
+    await capInput.fill('10')
+    await capInput.blur()
+
+    // Prefix/regex match, not { exact: true }: this asserts the message
+    // never appears with ANY day-count value baked in, not just a
+    // particular one.
+    const growthRow = page.getByTestId('custom-growth-row')
+    await expect(growthRow.getByText(/^天數上限不可低於最後一列的天數/)).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
+  })
+
+  test('切回勞基法標準時，先前的自訂規則相關警示不殘留', async ({ page }) => {
+    await page.locator('input[type="date"]').fill('2024-06-15')
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const row = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="12"]') })
+    const daysInput = row.locator('input[step="0.25"]')
+    await daysInput.fill('')
+    await daysInput.blur()
+
+    const perYearInput = page.getByLabel('每年增加天數')
+    await perYearInput.fill('')
+    await perYearInput.blur()
+
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
+
+    await page.getByRole('button', { name: '按勞基法第38條' }).click()
+
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeEnabled()
+    await expect(page.getByText('請填寫天數')).toHaveCount(0)
+    await expect(page.getByText('請填寫每年增加天數')).toHaveCount(0)
+  })
+
+  test('把最後一列月數改到接近上限後新增規則，新列的年資門檻錯誤立即可見（不必碰新列，方案 c）', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    const lastRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="120"]') })
+    const monthsInput = lastRow.locator('input[step="1"]')
+    await monthsInput.fill('1189')
+    await monthsInput.blur()
+
+    // addCustomRule() appends 12 months past the current last row:
+    // 1189 + 12 = 1201, past MAX_MILESTONE_MONTHS (1200). Its touched state
+    // is set automatically on creation (maintainer decision c), so the
+    // error is visible without ever touching the new row's own inputs.
+    await page.getByRole('button', { name: '新增規則' }).click()
+
+    await expect(page.getByText(
+      `年資門檻請填寫 ${MAX_MILESTONE_MONTHS} 個月（${MAX_MILESTONE_MONTHS / 12} 年）以內的正整數`,
+      { exact: true }
+    )).toBeVisible()
   })
 })
 

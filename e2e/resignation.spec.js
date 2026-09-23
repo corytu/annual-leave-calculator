@@ -65,9 +65,12 @@ test.describe('離職重來', () => {
 
     await expect(page.getByRole('button', { name: '離職重來' })).toBeDisabled()
     await expect(page.getByRole('button', { name: '離職重來' })).toHaveCSS('cursor', 'not-allowed')
-    // reverse assertion: enabled controls must not show the forbidden cursor
-    await expect(page.getByRole('button', { name: '儲存設定' })).toHaveCSS('cursor', 'pointer')
+    // reverse assertion: an always-enabled control must not show the forbidden cursor
+    await expect(page.getByRole('button', { name: '取消' })).toHaveCSS('cursor', 'pointer')
     await expect(page.locator('input[type="date"]')).not.toHaveCSS('cursor', 'not-allowed')
+    // new: 到職日空白時屬於 incomplete，儲存設定一載入就該是 disabled（W14 回歸）
+    await expect(page.getByRole('button', { name: '儲存設定' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '儲存設定' })).toHaveCSS('cursor', 'not-allowed')
   })
 
   test('儲存後欄位變唯讀，「離職重來」變 enabled', async ({ page }) => {
