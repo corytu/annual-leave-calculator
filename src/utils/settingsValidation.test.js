@@ -225,7 +225,14 @@ describe('validateSettingsInput', () => {
       })
 
       it("is skipped when the last row's own days is blocking", () => {
-        const rules = [{ id: 'r1', months: 12, days: 10 }, { id: 'r2', months: 24, days: -5 }]
+        // days: 20.1 is deliberately invalid (not a multiple of 0.25) AND
+        // greater than growthCap (10) -- with the guard removed, 10 < 20.1
+        // would be true and growthCap-min-lastrow WOULD fire (message baked
+        // with the bogus "20.1 天"), so this actually exercises the guard.
+        // -5 (the prior value) is invalid but also < 10, so 10 < -5 is false
+        // regardless of the guard -- the assertion passed even with the
+        // guard deleted, testing nothing.
+        const rules = [{ id: 'r1', months: 12, days: 10 }, { id: 'r2', months: 24, days: 20.1 }]
         const warnings = validateSettingsInput(input({ customRules: rules, growthPerYear: '1', growthCap: '10' }))
         expect(ids(warnings)).not.toContain('growthCap-min-lastrow')
       })
