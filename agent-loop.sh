@@ -31,9 +31,12 @@ set -euo pipefail
 #     與其一直修補這件事,不如整個繞開它:雙方需要的脈絡,全部由腳本明確組進
 #     每一輪的 prompt 裡,不依賴 CLI 自己記得任何東西。
 #   - Plan 迴圈每一輪(包含 revise 輪)都會重新附上完整的概念計畫,因為不能假設
-#     Coder 記得上一輪看過的內容。同理,revise 輪的 prompt 也會明講「請把完整
-#     計畫直接寫在回覆的純文字內容裡,不需要透過任何工具」,不依賴 ExitPlanMode
-#     這類工具一定會出現。
+#     Coder 記得上一輪看過的內容。Coder 的計畫輸出用 --json-schema 強制放進
+#     structured_output.plan 這個欄位,不依賴 .result——.result 只反映回應裡
+#     最後一段文字,如果 Coder 在吐出完整計畫後又習慣性地呼叫工具(例如把計畫另外
+#     存成檔案,就算被告知不需要也可能還是會做),.result 就只會剩下工具呼叫之後
+#     的收尾文字,完整計畫反而被截斷在外;structured_output 是整個流程結束後另外
+#     產生的最終答案,不受這個問題影響,這也是 Reviewer 從一開始就穩定的原因。
 #   - plan 迴圈的 revise 輪有防呆:如果 Coder 回傳的新計畫長度明顯比上一輪短很多,
 #     視為疑似「只回摘要、沒吐完整計畫」而直接中止,而不是讓退化默默發生。
 #   - diff 迴圈用 `git add -N .`(intent-to-add)把新增的 untracked 檔案也納入 diff,
@@ -95,6 +98,19 @@ VERDICT_SCHEMA='{
   "required": ["verdict", "issues", "notes"]
 }'
 
+# Coder 在 plan 迴圈的輸出也走 schema,理由跟 VERDICT_SCHEMA 一樣:.result 這個欄位
+# 似乎只反映回應裡「最後一段文字」,如果 Coder 在吐出完整計畫文字之後又呼叫了
+# 工具(例如把計畫存進 /home/node/.claude/plans/,這是它即使被告知不需要、仍然會
+# 做的習慣動作),.result 就只會剩下工具呼叫之後的收尾文字,完整計畫反而被截斷在外。
+# structured_output 是整個推理/工具呼叫流程結束後另外產生的最終答案,不受這個問題影響。
+PLAN_SCHEMA='{
+  "type": "object",
+  "properties": {
+    "plan": {"type": "string"}
+  },
+  "required": ["plan"]
+}'
+
 ### ---- 工具函式 ----
 
 log() {
@@ -133,7 +149,7 @@ assert_reasonable_size() {
 }
 
 coder_call() {
-  # coder_call <prompt-file> <permission-mode>
+  # coder_call <prompt-file> <permission-mode> [schema]
   # 完全 stateless:每次都是全新 session,不 --resume。需要的脈絡(概念計畫、
   # 目前進度、Reviewer 意見)全部由呼叫端組進 prompt_file 這個檔案裡,見檔頭說明。
   #
@@ -142,12 +158,21 @@ coder_call() {
   # 硬限制(MAX_ARG_STRLEN,常見是 128KB),這份審查資料(概念計畫+實作計畫+diff)
   # 很容易就超過,一旦超過會直接讓 claude 這個執行檔啟動失敗、丟出
   # "Argument list too long",不是 assert_reasonable_size 那種軟性的、可控的錯誤。
-  local prompt_file="$1" perm_mode="$2"
+  #
+  # schema(可省略):有給的話會加上 --json-schema,回應改從 .structured_output
+  # 讀,不受 .result 只反映「最後一段文字」這個限制影響。plan 迴圈用這個;diff
+  # 迴圈的修正呼叫不需要結構化輸出,不傳這個參數。
+  local prompt_file="$1" perm_mode="$2" schema="${3:-}"
   assert_reasonable_size "${prompt_file}" "Coder prompt"
 
   local abs_path
   abs_path="$(cd "$(dirname "${prompt_file}")" && pwd)/$(basename "${prompt_file}")"
   local instruction="請完整閱讀 ${abs_path} 這個檔案的內容,裡面包含你這次需要的完整任務說明與所有背景資料,並依照裡面的指示執行。"
+
+  local schema_args=()
+  if [[ -n "${schema}" ]]; then
+    schema_args=(--json-schema "${schema}")
+  fi
 
   local err_file="${RUN_DIR}/.last-coder-stderr"
   local resp
@@ -155,7 +180,8 @@ coder_call() {
     --model "${CODER_MODEL}" \
     --effort "${CODER_EFFORT}" \
     --permission-mode "${perm_mode}" \
-    --output-format json 2>"${err_file}")"
+    --output-format json \
+    "${schema_args[@]}" 2>"${err_file}")"
   local err_text
   err_text="$(cat "${err_file}" 2>/dev/null || true)"
   rm -f "${err_file}"
@@ -237,7 +263,9 @@ run_plan_review_loop() {
     echo "以下是已經敲定的概念計畫。請以 plan mode 產出一份詳細的程式實作計畫(不要修改任何檔案),"
     echo "內容要包含具體的檔案異動範圍、資料流、以及你認為需要特別注意的邊界情境。"
     echo
-    echo "**請把完整的實作計畫直接寫在這則回覆的純文字內容裡,不需要透過任何工具。**"
+    echo "**請把完整的實作計畫放進回覆的結構化 plan 欄位裡。不需要另外把計畫存成"
+    echo "檔案或使用任何工具——就算你習慣這麼做,這次也不需要,plan 欄位裡的內容"
+    echo "才是唯一會被後續流程讀取的地方。**"
     echo "**對於比較關鍵的設計決策,請在計畫裡順手註記簡短理由(為什麼這樣做、"
     echo "排除了哪些替代方案)——這是全新的 session,理由如果沒有寫進計畫文字本身,"
     echo "之後就再也看不到了。**"
@@ -247,10 +275,10 @@ run_plan_review_loop() {
   } >"${prompt_file}"
 
   local resp
-  resp="$(coder_call "${prompt_file}" "plan")"
+  resp="$(coder_call "${prompt_file}" "plan" "${PLAN_SCHEMA}")"
   require_success "${resp}" "Coder(round 0)"
   local plan_text
-  plan_text="$(echo "${resp}" | jq -r '.result')"
+  plan_text="$(echo "${resp}" | jq -r '.structured_output.plan // empty')"
   log "round-0" "Coder(plan)" "${plan_text}"
 
   local prev_verdict_text=""
@@ -298,11 +326,11 @@ run_plan_review_loop() {
       echo "以下是概念計畫,以及你上一版的實作計畫,還有 Reviewer 對它提出的意見(JSON 格式)。"
       echo "請逐項評估是否接受、說明理由,並據此修改你的實作計畫。"
       echo
-      echo "**重要:請重新輸出「完整」的修改後計畫,直接寫在這則回覆的純文字內容裡,"
-      echo "不需要透過任何工具。不要只回覆修改摘要或差異說明——這是全新的 session,"
-      echo "沒看過你之前說過的內容,只看得到以下提供的資訊。對於關鍵設計決策(不管是"
-      echo "沿用上一版的,還是這次因應意見調整的),請保留或補上簡短理由在計畫文字裡,"
-      echo "不要讓理由只存在於你這輪的思考過程裡卻沒寫進去。**"
+      echo "**重要:請把「完整」的修改後計畫放進回覆的結構化 plan 欄位裡,不要只放"
+      echo "修改摘要或差異說明——這是全新的 session,沒看過你之前說過的內容,只看得到"
+      echo "以下提供的資訊。對於關鍵設計決策(不管是沿用上一版的,還是這次因應意見"
+      echo "調整的),請保留或補上簡短理由在計畫文字裡,不要讓理由只存在於你這輪的"
+      echo "思考過程裡卻沒寫進去。**"
       echo
       echo "## 概念計畫"
       cat "${concept_plan_file}"
@@ -315,10 +343,10 @@ run_plan_review_loop() {
     } >"${cprompt}"
 
     local cresp
-    cresp="$(coder_call "${cprompt}" "plan")"
+    cresp="$(coder_call "${cprompt}" "plan" "${PLAN_SCHEMA}")"
     require_success "${cresp}" "Coder(round ${round} revise)"
     local new_plan_text
-    new_plan_text="$(echo "${cresp}" | jq -r '.result')"
+    new_plan_text="$(echo "${cresp}" | jq -r '.structured_output.plan // empty')"
 
     local prev_len=${#plan_text}
     local new_len=${#new_plan_text}
