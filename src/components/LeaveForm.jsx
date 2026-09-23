@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react'
-import { toISODateString, parseLocalDate, validateRecordsChain } from '../utils/leaveCalculations.js'
+import { useState, useEffect, useMemo } from 'react'
+import { toISODateString } from '../utils/leaveCalculations.js'
+import { computeLeaveFormWarnings } from '../utils/leaveFormValidation.js'
+import { isBlocking, isWarningVisible } from '../utils/warnings.js'
+import FieldWarnings from './FieldWarnings.jsx'
 
 const DAY_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 
@@ -20,49 +23,37 @@ export default function LeaveForm({
 }) {
   const [startDate, setStartDate] = useState('')
   const [days,      setDays]      = useState(1)
-  const [error,     setError]     = useState('')
+  const [touched,   setTouched]   = useState({})
 
   // Sync form when a calendar date is clicked or an edit is initiated
   useEffect(() => {
     if (editingRecord) {
       setStartDate(editingRecord.startDate)
       setDays(editingRecord.days)
-      setError('')
+      setTouched({ startDate: true, days: true })
     } else if (selectedDate) {
       setStartDate(selectedDate)
       setDays(1)
-      setError('')
+      setTouched(t => ({ ...t, startDate: true }))
     }
   }, [editingRecord, selectedDate])
 
   const isEditing = Boolean(editingRecord)
 
-  function validate() {
-    const parsedDays = parseFloat(days)
-    if (!startDate) { setError('請選擇請假開始日期'); return false }
-    const d = parseLocalDate(startDate)
-    if (d < periodStart || d > periodEnd) {
-      setError('日期必須在本週年度範圍內')
-      return false
-    }
-    if (!parsedDays || parsedDays <= 0) { setError('天數必須大於 0'); return false }
-    if (parsedDays % 0.25 !== 0) { setError('天數最小單位為 0.25（2 小時）'); return false }
+  const fieldWarnings = useMemo(
+    () => computeLeaveFormWarnings({ startDate, days, periodStart, periodEnd, allRecords, editingRecord, settings, today }),
+    [startDate, days, periodStart, periodEnd, allRecords, editingRecord, settings, today]
+  )
 
-    const candidateRecords = isEditing
-      ? allRecords.map(r => r.id === editingRecord.id ? { ...r, startDate, days: parsedDays } : r)
-      : [...allRecords, { startDate, days: parsedDays }]
-
-    const chainResult = validateRecordsChain(settings, candidateRecords, today)
-    if (!chainResult.valid) {
-      setError('這筆請假超支可用額度上限，請確認天數是否正確')
-      return false
-    }
-
-    return true
-  }
+  const startDateWarnings = fieldWarnings.filter(w =>
+    w.scope === 'field' && w.field === 'startDate' && isWarningVisible(w, touched))
+  const daysWarnings = fieldWarnings.filter(w =>
+    w.scope === 'field' && w.field === 'days' && isWarningVisible(w, touched))
+  const formWarnings = fieldWarnings.filter(w =>
+    w.scope === 'form' && isWarningVisible(w, touched))
 
   function handleSubmit() {
-    if (!validate()) return
+    if (fieldWarnings.some(w => isBlocking(w.tier))) return // 純防禦，不依賴它當安全網
     const parsedDays = parseFloat(days)
     if (isEditing) {
       onUpdate(editingRecord.id, { startDate, days: parsedDays })
@@ -75,7 +66,7 @@ export default function LeaveForm({
   function resetForm() {
     setStartDate('')
     setDays(1)
-    setError('')
+    setTouched({})
     onCancel()
   }
 
@@ -99,10 +90,12 @@ export default function LeaveForm({
               value={startDate}
               min={periodStartISO}
               max={periodEndISO}
-              onChange={e => { setStartDate(e.target.value); setError('') }}
+              onChange={e => setStartDate(e.target.value)}
+              onBlur={() => setTouched(t => ({ ...t, startDate: true }))}
               className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm
                          focus:outline-none focus:ring-1 focus:ring-teal-500"
             />
+            <FieldWarnings warnings={startDateWarnings} />
           </div>
 
           {/* Days */}
@@ -111,14 +104,16 @@ export default function LeaveForm({
             <div className="flex gap-1.5">
               {/* No `max` on purpose: the real per-record ceiling is dynamic
                   (carry-in + this period's entitlement + the next period's
-                  advance) and is enforced by validateRecordsChain in
-                  validate(). A fixed max here would only mislead (#30). */}
+                  advance) and is enforced by validateRecordsChain via
+                  computeLeaveFormWarnings. A fixed max here would only
+                  mislead (#30). */}
               <input
                 type="number"
                 min={0.25}
                 step={0.25}
                 value={days}
-                onChange={e => { setDays(e.target.value); setError('') }}
+                onChange={e => setDays(e.target.value)}
+                onBlur={() => setTouched(t => ({ ...t, days: true }))}
                 className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm
                            focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
@@ -128,7 +123,7 @@ export default function LeaveForm({
               {[0.25, 0.5, 1, 2, 3].map(n => (
                 <button
                   key={n}
-                  onClick={() => setDays(n)}
+                  onClick={() => { setDays(n); setTouched(t => ({ ...t, days: true })) }}
                   className={`text-xs px-1.5 py-0.5 rounded border transition-colors
                               ${Number(days) === n
                                 ? 'bg-teal-100 border-teal-400 text-teal-800'
@@ -139,18 +134,19 @@ export default function LeaveForm({
                 </button>
               ))}
             </div>
+            <FieldWarnings warnings={daysWarnings} />
           </div>
         </div>
 
-        {error && (
-          <p className="text-xs text-red-600">{error}</p>
-        )}
+        <FieldWarnings warnings={formWarnings} />
 
         <div className="flex gap-2 pt-1">
           <button
             onClick={handleSubmit}
+            disabled={fieldWarnings.some(w => isBlocking(w.tier))}
             className="px-4 py-1.5 bg-teal-700 text-white text-sm font-medium rounded
-                       hover:bg-teal-800 transition-colors"
+                       hover:bg-teal-800 transition-colors
+                       disabled:opacity-40 disabled:hover:bg-teal-700"
           >
             {isEditing ? '儲存變更' : '新增'}
           </button>
