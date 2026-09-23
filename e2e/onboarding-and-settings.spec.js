@@ -517,6 +517,38 @@ test.describe('特休規則設定', () => {
       { exact: true }
     )).toBeVisible()
   })
+
+  test('合規建議清單（advisory）與新警示集中清單（blocking）同時出現時，樣式與位置都不同 (W13)', async ({ page }) => {
+    await page.getByRole('button', { name: '公司另有規定' }).click()
+
+    // Trigger the compliance advisory: the 12-month row's days (7) drops
+    // below labor law's own 7-day minimum for that threshold.
+    const twelveMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="12"]') })
+    await twelveMonthRow.locator('input[step="0.25"]').fill('5')
+
+    // Trigger a form-scoped blocking error at the same time: retarget the
+    // 6-month row to duplicate the (already-retargeted) 12-month threshold.
+    const sixMonthRow = page.getByTestId('custom-rule-row').filter({ has: page.locator('input[value="6"]') })
+    const sixMonthsInput = sixMonthRow.locator('input[step="1"]')
+    await sixMonthsInput.fill('12')
+    await sixMonthsInput.blur()
+
+    const complianceBox = page.getByText('以下年資區間的天數低於勞基法最低標準').locator('..')
+    const formWarnings = page.getByTestId('settings-form-warnings')
+    await expect(complianceBox).toBeVisible()
+    await expect(formWarnings).toBeVisible()
+
+    // Different styling: the advisory list keeps its amber card; the new
+    // centralized list is deliberately plain text (see plan §7.3 W13).
+    await expect(complianceBox).toHaveClass(/bg-amber-50/)
+    await expect(formWarnings).not.toHaveClass(/bg-amber-50/)
+
+    // Different physical position: the advisory card sits above the new
+    // centralized list, not interleaved with it.
+    const complianceBoxRect = await complianceBox.boundingBox()
+    const formWarningsRect = await formWarnings.boundingBox()
+    expect(complianceBoxRect.y).toBeLessThan(formWarningsRect.y)
+  })
 })
 
 // A separate top-level describe on purpose: '特休規則設定' navigates
