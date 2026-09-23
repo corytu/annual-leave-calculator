@@ -361,6 +361,8 @@ export const MAX_LEAVE_RECORD_DATES = 3 * MAX_ANNUAL_LEAVE_DAYS;
  * it actually spans, skipping Saturdays and Sundays. Each weekday consumes
  * 1 unit of `days`; a fractional trailing day still counts as a spanned date.
  *
+ * `startDate` is a record's startDate field, a 'YYYY-MM-DD' string (storage.js).
+ *
  * Only Saturdays/Sundays are skipped -- national holidays and their
  * compensatory workdays (補班日) are not taken into account (#33).
  *
@@ -369,7 +371,7 @@ export const MAX_LEAVE_RECORD_DATES = 3 * MAX_ANNUAL_LEAVE_DAYS;
  * record still shows up as an overspend in the summary (not silently hidden).
  */
 export function getLeaveRecordDates(startDate, days) {
-  const start = typeof startDate === 'string' ? parseLocalDate(startDate) : startDate;
+  const start = parseLocalDate(startDate);
   const cursor = new Date(start);
   const dates = [];
   let remaining = Number(days);
