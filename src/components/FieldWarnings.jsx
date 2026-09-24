@@ -1,5 +1,5 @@
 const TIER_CLASSNAME = {
-  incomplete: 'text-xs text-stone-500',
+  incomplete: 'text-xs text-red-600',
   error: 'text-xs text-red-600',
 }
 
