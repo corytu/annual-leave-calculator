@@ -35,16 +35,18 @@ describe('fetchHolidayYear', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('404 and year >= currentYear -> pending', async () => {
+  it('404 and year >= currentYear -> pending, not retried', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ status: 404 })
     const result = await fetchHolidayYear(2026, { fetchImpl, currentYear: 2025 })
     expect(result).toEqual({ status: 'pending' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('404 and year < currentYear -> unavailable', async () => {
+  it('404 and year < currentYear -> unavailable, not retried', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ status: 404 })
     const result = await fetchHolidayYear(2024, { fetchImpl, currentYear: 2025 })
     expect(result).toEqual({ status: 'unavailable' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
   it('3 consecutive non-404 failures -> error, retries 3 times with 2000ms/5000ms delays', async () => {
@@ -81,6 +83,24 @@ describe('fetchHolidayYear', () => {
       expect(fetchImpl).toHaveBeenCalledTimes(2)
     } finally {
       vi.useRealTimers()
+    }
+  })
+
+  it('exercises the default fetchImpl = fetch branch by stubbing the global, under fake timers', async () => {
+    vi.useFakeTimers()
+    const fetchStub = vi.fn()
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce(jsonResponse([{ date: '20250101', isHoliday: true }]))
+    vi.stubGlobal('fetch', fetchStub)
+    try {
+      const promise = fetchHolidayYear(2025, { currentYear: 2025 })
+      await vi.advanceTimersByTimeAsync(2000)
+      const result = await promise
+      expect(result.status).toBe('available')
+      expect(fetchStub).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
     }
   })
 
@@ -135,9 +155,16 @@ describe('hydrateHolidayCache', () => {
     expect(result[2024]).toEqual({ cacheVersion: HOLIDAY_CACHE_VERSION, status: 'unavailable' })
   })
 
-  it('skips entries whose cacheVersion does not match', () => {
+  it('skips entries whose cacheVersion does not match (original status available)', () => {
     localStorage.setItem('leaveCalculator_holidayCache_2025', JSON.stringify({
       cacheVersion: HOLIDAY_CACHE_VERSION + 1, status: 'available', dates: ['2025-01-01'],
+    }))
+    expect(hydrateHolidayCache()).toEqual({})
+  })
+
+  it('skips entries whose cacheVersion does not match (original status unavailable)', () => {
+    localStorage.setItem('leaveCalculator_holidayCache_2024', JSON.stringify({
+      cacheVersion: HOLIDAY_CACHE_VERSION + 1, status: 'unavailable',
     }))
     expect(hydrateHolidayCache()).toEqual({})
   })

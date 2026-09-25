@@ -491,9 +491,14 @@ describe('getLeaveRecordDates', () => {
 
   describe('isNonWorkingDay (holiday-aware expansion, #33)', () => {
     it('defaults to weekends-only when no predicate is passed (backward compatible)', () => {
-      expect(getLeaveRecordDates('2026-09-01', 5)).toEqual(
-        getLeaveRecordDates('2026-09-01', 5, undefined)
-      )
+      // 2026-09-04 is a Friday; 09-05/09-06 are the weekend, so 3 days
+      // starting there should skip the weekend and land on 09-04, 09-07,
+      // 09-08. A tautological comparison against another omitted-argument
+      // call would still pass even if the default predicate were broken
+      // (e.g. always returning false), so assert the concrete expansion.
+      expect(getLeaveRecordDates('2026-09-04', 3)).toEqual([
+        '2026-09-04', '2026-09-07', '2026-09-08',
+      ])
     })
 
     it('skips a date the predicate reports as non-working, even a weekday (2026-09-03 is a Thursday)', () => {

@@ -725,7 +725,7 @@ function toISODateStringLocal(date) {
    - note 顯示「已載入」+ `text-stone-400`，不含 `text-red-600`。
 2. **既有記錄延展**：已有一筆橫跨平日假日（且可能跨週末）的多天請假記錄，mock 2025.json 用 `buildHolidayYearBody(2025, [對應平日假日])` → 圓點正確跳過假日與週末、往後延展。
 3. 選取假日日期 → tile 背景暗紅、文字白色；點擊後保持 focus 時背景仍暗紅。
-4. mock 404 且年度 2026（≥currentYear）→ note「尚未公布」+ `text-stone-400`。
+4. mock 404 且年度 2026（≥currentYear）→ note「尚未公布」+ `text-stone-400`。**偏離**：實作停在預設顯示月份（`FIXED_TODAY = 2025-06-15` 下的 2025 年 6 月），不切換到 2026——2025 本身就 `>= currentYear`（`currentYear` 由 `FIXED_TODAY` 決定為 2025），404 一樣落在 `pending` 分類，測試標題也改成「當前年度」以反映這點。真正切到 2026 年月份的等價路徑已由測試 8（切換月份跨到另一狀態不同的 mock 年度）覆蓋，不需要在測試 4 重複；兩者一起仍完整覆蓋「`year >= currentYear` → `pending`」這條分類規則，只是分成兩個測試各驗證一半（分類本身 vs. 切月後的 note 更新）。
 5. mock 404 且年度 2024（<currentYear）→ note「無資料來源」+ `text-stone-400`。
 6. **error 與重試**：2025.json 一律回傳 `'abort'`，handler 閉包維持計數器。`expect.poll(() => callCountFor2025).toBe(1)` 確認第一次嘗試已發生（此時 note 仍「載入中」）；`page.clock.runFor(2000)` → `expect.poll(...).toBe(2)`；`page.clock.runFor(5000)` → `expect.poll(...).toBe(3)`，斷言 note 變「載入失敗」+ `text-red-600` + 出現「點此重試」按鈕；把 handler 切成成功後點擊重試 → `expect(...).toContainText('已載入')`。
 7. 點擊導覽列標籤 → 確認不會鑽到年/年代檢視（`minDetail="month"` 生效）。

@@ -57,8 +57,12 @@ test.describe('國定假日資料整合', () => {
 
     const day17 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 17 }) + ' 已登記請假', exact: true })
     await expect(day17.locator('.leave-dot')).toBeVisible()
-    const day18 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 18 }), exact: true })
-    await expect(day18.locator('.leave-dot')).toHaveCount(0)
+    // Locating by the plain (no "已登記請假") accessible name would still
+    // match zero elements -- and thus pass toHaveCount(0) vacuously -- if the
+    // 18th actually had a dot, since its accessible name would then include
+    // the "已登記請假" suffix. Assert directly on the dotted name instead.
+    const day18Dotted = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 18 }) + ' 已登記請假', exact: true })
+    await expect(day18Dotted).toHaveCount(0)
     const day19 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 19 }) + ' 已登記請假', exact: true })
     await expect(day19.locator('.leave-dot')).toBeVisible()
   })
@@ -192,6 +196,11 @@ test.describe('國定假日資料整合', () => {
       await seedAppStorage(page, { settings: BASE_SETTINGS, records: [] })
       await page.goto('/')
       await expect.poll(() => callCountFor2025).toBe(1)
+      // Confirm the 200 response has actually been processed into `available`
+      // before the round trip below -- otherwise a still-in-flight request
+      // would let the in-flight guard (not `isFresh`) suppress the 2nd
+      // request, and the negative control would pass for the wrong reason.
+      await expect(page.getByTestId('calendar-holiday-note')).toContainText('已載入')
 
       // Negative control: a plain 設定 -> 首頁 round trip (no clear) must not
       // trigger a 2nd request -- 2025 is already `available` and fresh.
@@ -323,8 +332,12 @@ test.describe('國定假日資料整合', () => {
     await expect(page.getByTestId('calendar-holiday-note')).toContainText('已載入')
     const day19 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 19 }) + ' 已登記請假', exact: true })
     await expect(day19.locator('.leave-dot')).toBeVisible()
-    const day18 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 18 }), exact: true })
-    await expect(day18.locator('.leave-dot')).toHaveCount(0)
+    // Same vacuous-pass trap as the "既有記錄延展" test above: locating by
+    // the plain name would match nothing (and thus pass toHaveCount(0)
+    // vacuously) if the 18th still had a stale dot, since its accessible
+    // name would then carry the "已登記請假" suffix instead.
+    const day18Dotted = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 18 }) + ' 已登記請假', exact: true })
+    await expect(day18Dotted).toHaveCount(0)
   })
 
   test('期間外的日期（含週末與假日）一律顯示淡灰，不受假日或週末樣式影響', async ({ page }) => {
