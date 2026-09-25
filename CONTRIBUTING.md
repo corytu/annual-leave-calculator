@@ -19,6 +19,9 @@ npm run dev
 
 1. Fork 本專案，並從 `master` 建立新分支進行修改
 2. Commit 訊息採祈使句、簡短描述變更即可（例如 `Fix growth-row threshold consistency`），不需要 Conventional Commits 前綴
+   - 若變更與某個 Issue 有關，但該 commit 本身不會解決它，可在訊息中加註 `Refs #X`
+   - 若變更會解決該 Issue，改用 closing keyword（如 `Fixes #X`），PR 合併後會自動關閉對應 Issue；同時對應多個 Issue 時，需重複 closing keyword，例如 `Fixes #X; fixes #Y`
+   - Issue reference 建議放在 commit 訊息最後一行，訊息主體仍優先描述「做了什麼變更」
 3. 推送分支並開啟 Pull Request，目標分支為 `master`
 
 ## 測試
