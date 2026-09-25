@@ -29,11 +29,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Inject today's date as a Vite env variable so the footer can display
+      # Inject today's date (Asia/Taipei) as a Vite env variable so the footer can display
       # "最後更新：YYYY-MM-DD" without any runtime API call.
       - name: Inject build date
+        env:
+          TZ: Asia/Taipei
         run: |
-          BUILD_DATE=$(date -u +%Y-%m-%d)
+          BUILD_DATE=$(date +%Y-%m-%d)
           echo "VITE_BUILD_DATE=${BUILD_DATE}" >> .env.production
           echo "Build date injected: ${BUILD_DATE}"
 
