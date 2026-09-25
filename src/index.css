@@ -166,10 +166,19 @@
 
 /* Un-selected holiday tile on hover/focus (0,4,0): must beat the generic
    .react-calendar__tile:enabled:hover/:focus rule above (0,3,0), which would
-   otherwise repaint it teal (#0f766e). */
+   otherwise repaint it teal. The pale background is the holiday red's
+   counterpart (rose-50) of the generic rule's teal-50. */
 .react-calendar__tile--holiday:not(.react-calendar__tile--out-of-period):enabled:hover,
 .react-calendar__tile--holiday:not(.react-calendar__tile--out-of-period):enabled:focus {
+  background: #fff1f2;
   color: #9f1239;
+}
+
+/* Today is a holiday (0,3,0): swap --now's pale teal background for the
+   pale holiday red; --now's bold weight is kept, and the text color already
+   comes from the holiday rule above. */
+.react-calendar__tile--now.react-calendar__tile--holiday:not(.react-calendar__tile--out-of-period) {
+  background: #fff1f2;
 }
 
 /* Selected holiday tile: dark-red background, white text. */
@@ -186,8 +195,3 @@
 .react-calendar__tile--active.react-calendar__tile--holiday:enabled:focus {
   background: #9f1239 !important;
 }
-
-/* Today happens to be a holiday: --tile--now above already sets
-   background/font-weight/color together; the (0,2,0) holiday rule only
-   overrides color, leaving background/font-weight intact, so the two
-   coexist without needing a dedicated rule here. */

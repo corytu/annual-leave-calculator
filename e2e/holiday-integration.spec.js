@@ -12,7 +12,7 @@ const BASE_SETTINGS = {
 }
 
 test.describe('國定假日資料整合', () => {
-  test('available：平日假日與週末皆暗紅、未選取 hover/focus 維持暗紅、補班週六不套用 holiday class', async ({ page }) => {
+  test('available：平日假日與週末皆暗紅、未選取 hover/focus 為淡紅底暗紅字、補班週六不套用 holiday class', async ({ page }) => {
     await freezeTime(page)
     // 2025-06-18 (Wed): extra weekday holiday. 2025-06-21 (Sat): makeup
     // workday, excluded from the generated body so it stays a plain weekend.
@@ -26,7 +26,16 @@ test.describe('國定假日資料整合', () => {
 
     const weekdayHoliday = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 18 }) })
     await expect(weekdayHoliday).toHaveCSS('color', 'rgb(159, 18, 57)')
+    // Hovering a holiday gives the pale holiday red (rose-50), not the
+    // generic pale teal; a plain weekday next to it keeps the pale teal.
+    await weekdayHoliday.hover()
+    await expect(weekdayHoliday).toHaveCSS('background-color', 'rgb(255, 241, 242)')
+    await expect(weekdayHoliday).toHaveCSS('color', 'rgb(159, 18, 57)')
+    const plainWeekday = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 17 }) })
+    await plainWeekday.hover()
+    await expect(plainWeekday).toHaveCSS('background-color', 'rgb(240, 253, 250)')
     await weekdayHoliday.focus()
+    await expect(weekdayHoliday).toHaveCSS('background-color', 'rgb(255, 241, 242)')
     await expect(weekdayHoliday).toHaveCSS('color', 'rgb(159, 18, 57)')
 
     const weekendHoliday = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 7 }) })
@@ -40,6 +49,40 @@ test.describe('國定假日資料整合', () => {
     await expect(note).toContainText('已載入')
     await expect(note).toHaveClass(/text-stone-400/)
     await expect(note).not.toHaveClass(/text-red-600/)
+  })
+
+  test('今日是假日時，今日 tile 為淡紅底、暗紅粗體字', async ({ page }) => {
+    // FIXED_TODAY 2025-06-15 is a Sunday, which the available data marks as a holiday.
+    await freezeTime(page)
+    await mockHolidayCdn(page, (year) =>
+      year === 2025 ? { status: 200, body: buildHolidayYearBody(2025) } : { status: 404 }
+    )
+    await seedAppStorage(page, { settings: BASE_SETTINGS, records: [] })
+    await page.goto('/')
+    await expect(page.getByTestId('calendar-holiday-note')).toContainText('已載入')
+
+    const today = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 15 }) })
+    await expect(today).toHaveClass(/react-calendar__tile--now/)
+    await expect(today).toHaveCSS('background-color', 'rgb(255, 241, 242)')
+    await expect(today).toHaveCSS('color', 'rgb(159, 18, 57)')
+    await expect(today).toHaveCSS('font-weight', '700')
+  })
+
+  test('今日非假日時，今日 tile 維持淡綠底、主題綠字', async ({ page }) => {
+    // 2025-06-16 is a Monday, still inside the 2025-06-01 ~ 2026-05-31 period.
+    await freezeTime(page, '2025-06-16T03:00:00')
+    await mockHolidayCdn(page, (year) =>
+      year === 2025 ? { status: 200, body: buildHolidayYearBody(2025) } : { status: 404 }
+    )
+    await seedAppStorage(page, { settings: BASE_SETTINGS, records: [] })
+    await page.goto('/')
+    await expect(page.getByTestId('calendar-holiday-note')).toContainText('已載入')
+
+    const today = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 16 }) })
+    await expect(today).toHaveClass(/react-calendar__tile--now/)
+    await expect(today).not.toHaveClass(/react-calendar__tile--holiday/)
+    await expect(today).toHaveCSS('background-color', 'rgb(240, 253, 250)')
+    await expect(today).toHaveCSS('color', 'rgb(15, 118, 110)')
   })
 
   test('既有記錄延展：圓點正確跳過假日與週末並往後延伸', async ({ page }) => {
