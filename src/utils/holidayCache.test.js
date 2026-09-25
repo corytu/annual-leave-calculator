@@ -186,6 +186,16 @@ describe('hydrateHolidayCache', () => {
     expect(hydrateHolidayCache()).toEqual({})
   })
 
+  it('skips keys whose year suffix is not a valid integer', () => {
+    localStorage.setItem('leaveCalculator_holidayCache_abc', JSON.stringify({
+      cacheVersion: HOLIDAY_CACHE_VERSION, status: 'available', dates: ['2025-01-01'],
+    }))
+    localStorage.setItem('leaveCalculator_holidayCache_2024.5', JSON.stringify({
+      cacheVersion: HOLIDAY_CACHE_VERSION, status: 'available', dates: ['2024-01-01'],
+    }))
+    expect(hydrateHolidayCache()).toEqual({})
+  })
+
   it('skips corrupted (non-JSON) entries without throwing', () => {
     localStorage.setItem('leaveCalculator_holidayCache_2025', '{not valid json')
     expect(hydrateHolidayCache()).toEqual({})
