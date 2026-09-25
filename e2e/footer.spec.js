@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime, seedAppStorage } from './helpers.js'
+import { freezeTime, seedAppStorage, mockHolidayCdn } from './helpers.js'
 
 test.describe('頁尾', () => {
   test.beforeEach(async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
   })
 
   test('顯示最後更新日、免責聲明與 GitHub 連結', async ({ page }) => {

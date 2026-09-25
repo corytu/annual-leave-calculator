@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime, seedAppStorage } from './helpers.js'
+import { freezeTime, seedAppStorage, mockHolidayCdn } from './helpers.js'
 
 // onboard 2022-06-15 + frozen "today" 2025-06-15 -> exactly 36 completed
 // months -> current milestone 36 (14 days), previous milestone 24 (10 days).
@@ -22,6 +22,7 @@ const SETTINGS_WITH_CARRYOVER = {
 test.describe('假期遞延', () => {
   test.beforeEach(async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
     await page.goto('/')
   })
@@ -84,6 +85,7 @@ test.describe('跨兩個週年度的鏈式遞延', () => {
     // Frozen "today" 2026-01-15 -> completed months 28 -> current milestone 24
     // (10 days), previous milestone 12 (7 days).
     await freezeTime(page, '2026-01-15T03:00:00')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: CHAIN_SETTINGS,
       records: [
@@ -104,6 +106,7 @@ test.describe('跨兩個週年度的鏈式遞延', () => {
     // 6~12mo has 1 day (carryOut 2), 12~24mo has 15 days
     // (availableTotal = 2+7-15 = -10, exactly at the -10 threshold, not below it).
     await freezeTime(page, '2025-01-15T03:00:00')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: CHAIN_SETTINGS,
       records: [
@@ -136,6 +139,7 @@ test.describe('關閉遞延時仍顯示已結清天數', () => {
     // Frozen "today" 2025-01-15 -> current milestone 12, previous milestone 6
     // (3 days entitlement, no records taken -> fully settled since carryover is off).
     await freezeTime(page, '2025-01-15T03:00:00')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: { ...CHAIN_SETTINGS, allowCarryover: false },
       records: [],

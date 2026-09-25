@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime, seedAppStorage } from './helpers.js'
+import { freezeTime, seedAppStorage, mockHolidayCdn } from './helpers.js'
 
 // Settings are locked once onboardDate has been saved (isLocked = Boolean(settings.onboardDate)).
 // ruleType is deliberately 'custom' with a non-empty customRules row so the
@@ -57,6 +57,7 @@ async function readStorage(page) {
 test.describe('離職重來', () => {
   test.beforeEach(async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
   })
 
   test('未儲存設定時「離職重來」為 disabled', async ({ page }) => {

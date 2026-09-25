@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime, seedAppStorage } from './helpers.js'
+import { freezeTime, seedAppStorage, mockHolidayCdn } from './helpers.js'
 import { MAX_ANNUAL_LEAVE_DAYS, MAX_MILESTONE_MONTHS } from '../src/utils/leaveCalculations.js'
 
 test.describe('首次使用與設定流程', () => {
   test.beforeEach(async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
   })
 
   test('首次進入（無資料）顯示尚未設定到職日的空狀態', async ({ page }) => {
@@ -36,6 +37,7 @@ test.describe('首次使用與設定流程', () => {
 test.describe('特休規則設定', () => {
   test.beforeEach(async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     // No seeded settings: once onboardDate is saved, the settings page locks
     // and the rule editor becomes read-only (see resignation.spec.js), so the
     // only place left to exercise rule-editing is before the first save.
@@ -658,6 +660,7 @@ test.describe('特休規則設定', () => {
 test.describe('既有資料相容性（#19 切點重新分配）', () => {
   test('既有請假記錄因切點重新分配而超支時，首頁仍正常顯示且不拋錯', async ({ page }) => {
     await freezeTime(page, '2022-03-01T03:00:00')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: {
         onboardDate: '2020-01-01',
@@ -684,6 +687,7 @@ test.describe('既有資料相容性（#19 切點重新分配）', () => {
 test.describe('舊資料的荒謬天數設定會被夾值 (#45)', () => {
   test('儲存於上限修正前的荒謬規則天數，首頁額度顯示為 MAX_ANNUAL_LEAVE_DAYS', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: {
         onboardDate: '2000-01-01',
@@ -699,6 +703,7 @@ test.describe('舊資料的荒謬天數設定會被夾值 (#45)', () => {
 
   test('舊資料缺少 days 欄位且成長規則啟用時，首頁額度顯示為 0 而非 NaN', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: {
         onboardDate: '2000-01-01',

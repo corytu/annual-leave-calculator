@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime, seedAppStorage, zhDayLabel } from './helpers.js'
+import { freezeTime, seedAppStorage, zhDayLabel, mockHolidayCdn } from './helpers.js'
 
 // onboard 2024-06-15 + frozen "today" 2025-06-15 -> exactly 12 completed
 // months -> current period is 2025-06-15 ~ 2026-06-14, entitled 7 days.
@@ -13,6 +13,7 @@ const BASE_SETTINGS = {
 test.describe('月曆互動與請假記錄 CRUD', () => {
   test.beforeEach(async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: BASE_SETTINGS, records: [] })
     await page.goto('/')
   })
@@ -270,9 +271,10 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     await expect(page.getByTestId('summary-taken')).toContainText('45')
   })
 
-  test('月曆說明揭露圓點未考慮國定假日與補班日', async ({ page }) => {
+  test('月曆說明反映國定假日資料狀態', async ({ page }) => {
     // Only match the keyword, not the full sentence, so a copy tweak doesn't
-    // break this test.
+    // break this test. mockHolidayCdn's default handler 404s every year, so
+    // this reads whichever of pending/unavailable the note lands on.
     await expect(page.getByTestId('calendar-holiday-note')).toContainText('國定假日')
   })
 })
@@ -280,6 +282,7 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
 test.describe('壞資料健壯性 (#29)', () => {
   test('請假天數為荒謬大值的記錄不會讓月曆凍結，摘要如實顯示超支', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: BASE_SETTINGS,
       records: [{ id: 'r1', startDate: '2025-06-20', days: 1e6 }],
@@ -304,6 +307,7 @@ test.describe('壞資料健壯性 (#29)', () => {
 test.describe('資料持久化', () => {
   test('新增記錄並重新整理頁面後，資料仍然存在', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     // Only seed settings here (not records): this init script re-fires on
     // page.reload() below, and we specifically want the record we add via
     // the UI to survive that reload untouched. See the warning in

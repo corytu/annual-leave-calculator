@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { freezeTime, seedAppStorage, zhDayLabel } from './helpers.js'
+import { freezeTime, seedAppStorage, zhDayLabel, mockHolidayCdn } from './helpers.js'
 
 // This file covers period-tab *UI behavior* (labels, ordering, selection,
 // summary-card follow-through) as opposed to chained-carryover calculation
@@ -42,6 +42,7 @@ test.describe('期別分頁', () => {
     // Frozen "today" 2026-01-15 -> completed months 28 -> chain is
     // [milestone 6, milestone 12, milestone 24] -> 3 tabs.
     await freezeTime(page, '2026-01-15T03:00:00')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: CHAIN_SETTINGS, records: [] })
     await page.goto('/')
 
@@ -54,6 +55,7 @@ test.describe('期別分頁', () => {
 
   test('allowCarryover 為 false 時仍能看到多個分頁', async ({ page }) => {
     await freezeTime(page, '2026-01-15T03:00:00')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: { ...CHAIN_SETTINGS, allowCarryover: false }, records: [] })
     await page.goto('/')
 
@@ -66,6 +68,7 @@ test.describe('期別分頁', () => {
     // 6~12mo has 1 day (carryOut 2), 12~24mo has 15 days
     // (availableTotal = 2+7-15 = -6, not below the -10 threshold).
     await freezeTime(page, '2025-01-15T03:00:00')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: CHAIN_SETTINGS,
       records: [
@@ -96,6 +99,7 @@ test.describe('期別分頁', () => {
 
   test('切換分頁後摘要卡片正確反映該期別自己的數字', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
     await page.goto('/')
 
@@ -126,6 +130,7 @@ test.describe('期別分頁', () => {
 
   test('新增記錄後，目前選取分頁不會被強制跳回最新一期', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
     await page.goto('/')
 
@@ -142,6 +147,7 @@ test.describe('期別分頁', () => {
 
   test('切換到較舊分頁後，月曆顯示該期間內的月份', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
     await page.goto('/')
 
@@ -157,6 +163,7 @@ test.describe('期別分頁', () => {
 
   test('切換分頁後，表單中尚未送出的輸入被清空', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
     await page.goto('/')
 
@@ -168,6 +175,7 @@ test.describe('期別分頁', () => {
 
   test('編輯中切換分頁後，表單回到新增模式且欄位清空', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: SETTINGS_WITH_CARRYOVER,
       records: [{ id: 'r1', startDate: '2025-07-01', days: 2 }],
@@ -186,6 +194,7 @@ test.describe('期別分頁', () => {
 
   test('點擊目前已選取的分頁不會中斷編輯', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, {
       settings: SETTINGS_WITH_CARRYOVER,
       records: [{ id: 'r1', startDate: '2025-07-01', days: 2 }],
@@ -203,6 +212,7 @@ test.describe('期別分頁', () => {
 
   test('切換分頁後點月曆日期仍能正確帶入表單', async ({ page }) => {
     await freezeTime(page)
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: SETTINGS_WITH_CARRYOVER, records: [] })
     await page.goto('/')
 
@@ -219,6 +229,7 @@ test.describe('期別分頁', () => {
 
   test('分頁保持開啟，跨越午夜後會新增週年制期別分頁', async ({ page }) => {
     await freezeTime(page, '2025-06-14T23:59:30')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: MIDNIGHT_ROLLOVER_SETTINGS, records: [] })
     await page.goto('/')
     const tabs = page.getByTestId('period-tabs').getByRole('button')
@@ -237,6 +248,7 @@ test.describe('期別分頁', () => {
 
   test('分頁保持開啟，達成首次特休資格後會離開空白狀態', async ({ page }) => {
     await freezeTime(page, '2024-12-14T23:59:30')
+    await mockHolidayCdn(page)
     await seedAppStorage(page, { settings: MIDNIGHT_ROLLOVER_SETTINGS, records: [] })
     await page.goto('/')
     await expect(page.getByTestId('summary-entitled')).toHaveCount(0)
