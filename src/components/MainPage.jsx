@@ -1,12 +1,23 @@
 import { useState, useMemo, useEffect } from 'react'
-import { calculateSummary, formatPeriodLabel, toISODateString, parseLocalDate } from '../utils/leaveCalculations.js'
+import { calculateSummary, formatPeriodLabel, toISODateString, parseLocalDate, makeIsNonWorkingDay, getDefaultVisibleMonth } from '../utils/leaveCalculations.js'
 import LeaveCalendar from './LeaveCalendar.jsx'
 import LeaveForm from './LeaveForm.jsx'
 import { useToday } from '../hooks/useToday.js'
 
+// calendar-holiday-note text per holiday-cache status (§2.5 of the design doc).
+const HOLIDAY_NOTE_TEXT = {
+  available: '國定假日資料已載入，圓點已跳過所有國定休假',
+  loading: '國定假日資料載入中，圓點暫時只跳過週六日',
+  pending: '國定假日資料尚未公布，圓點暫時只跳過週六日',
+  unavailable: '無國定假日資料來源，圓點只跳過週六日',
+  error: '國定假日資料載入失敗，圓點只跳過週六日',
+}
+
 export default function MainPage({
   settings,
   records,
+  holidayCache,
+  ensureYear,
   onAddRecord,
   onUpdateRecord,
   onDeleteRecord,
@@ -19,6 +30,17 @@ export default function MainPage({
   )
   const periods = summary.periods ?? []
 
+  // Years the visible periods' calendars could ever need holiday data for.
+  // Empty when `periods` is empty (e.g. onboarded but not yet past the first
+  // milestone) -- coverage effects below then fetch nothing, and
+  // holidayCache stays {}.
+  const neededYears = useMemo(() => computeNeededYears(periods), [periods])
+  const neededYearsKey = [...neededYears].sort().join(',')
+
+  // Shared by both the calendar dot expansion and LeaveCalendar's tile
+  // styling, so the two never disagree about which dates are non-working.
+  const isNonWorkingDay = useMemo(() => makeIsNonWorkingDay(holidayCache), [holidayCache])
+
   // Which period's tab is selected, keyed by milestoneMonths (stable across
   // record edits, unlike an array index or a Date object reference).
   const [selectedMilestone, setSelectedMilestone] = useState(null)
@@ -26,6 +48,9 @@ export default function MainPage({
   const [selectedDate, setSelectedDate] = useState(null)
   // Record being edited (null = add mode)
   const [editingRecord, setEditingRecord] = useState(null)
+  // Month currently shown by LeaveCalendar, reported up via
+  // onVisibleMonthChange -- drives which year's holiday-note status to show.
+  const [visibleMonth, setVisibleMonth] = useState(null)
 
   // Default to the newest period on first load, without ever snapping back
   // to it afterwards once the user has picked a period themselves.
@@ -38,8 +63,24 @@ export default function MainPage({
   // After a resignation reset, onboardDate is cleared -- reset selection so a
   // future re-onboarding correctly re-defaults to the newest period again.
   useEffect(() => {
-    if (!settings.onboardDate) setSelectedMilestone(null)
+    if (!settings.onboardDate) {
+      setSelectedMilestone(null)
+      setVisibleMonth(null)
+    }
   }, [settings.onboardDate])
+
+  // Fetch holiday data for every year the visible periods could show.
+  useEffect(() => {
+    neededYears.forEach((year) => ensureYear(year))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- neededYearsKey is neededYears' stable identity
+  }, [neededYearsKey])
+
+  // Daily heartbeat: also re-triggers `pending`/`error` years once the frozen
+  // `today` from useToday() ticks over (e.g. past midnight, or a fresh day).
+  useEffect(() => {
+    neededYears.forEach((year) => ensureYear(year))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only `today` should re-trigger this
+  }, [today])
 
   // ── No leave yet / not set up ──────────────────────────────────────────────
 
@@ -68,6 +109,13 @@ export default function MainPage({
     periods.find(p => p.milestoneMonths === selectedMilestone) ??
     periods[periods.length - 1]
 
+  // Which year's holiday-cache status the note below reflects: the month
+  // LeaveCalendar last reported (via onVisibleMonthChange), or -- for the one
+  // render before its mount effect fires -- the same default it will report.
+  const visibleYear = (
+    visibleMonth ?? getDefaultVisibleMonth(activePeriod.periodStart, activePeriod.periodEnd, today)
+  ).getFullYear()
+
   const isNewest = activePeriod.milestoneMonths === periods[periods.length - 1].milestoneMonths
   const isEarliest = activePeriod.milestoneMonths === periods[0].milestoneMonths
   const showCarryIn = settings.allowCarryover && !isEarliest
@@ -77,6 +125,8 @@ export default function MainPage({
     const d = parseLocalDate(r.startDate)
     return d >= activePeriod.periodStart && d <= activePeriod.periodEnd
   })
+
+  const holidayNoteStatus = holidayCache[visibleYear]?.status ?? 'loading'
 
   function handleCalendarDateClick(date) {
     setSelectedDate(toISODateString(date))
@@ -101,6 +151,7 @@ export default function MainPage({
     setSelectedMilestone(milestoneMonths)
     setEditingRecord(null)
     setSelectedDate(null)
+    setVisibleMonth(null)
   }
 
   return (
@@ -176,20 +227,32 @@ export default function MainPage({
         <div className="px-5 py-3 border-b border-stone-100 bg-stone-50">
           <h2 className="text-sm font-semibold text-stone-700">月曆</h2>
           <p className="text-xs text-stone-400 mt-0.5">點擊日期快速新增請假記錄</p>
-          <p data-testid="calendar-holiday-note" className="text-xs text-stone-400">
-            圓點只跳過週六日，未考慮國定假日與補班日
+          <p data-testid="calendar-holiday-note"
+             className={holidayNoteStatus === 'error' ? 'text-xs text-red-600' : 'text-xs text-stone-400'}>
+            {HOLIDAY_NOTE_TEXT[holidayNoteStatus]}
+            {holidayNoteStatus === 'error' && (
+              <>
+                （<button type="button" className="underline" onClick={() => ensureYear(visibleYear)}>點此重試</button>）
+              </>
+            )}
           </p>
         </div>
         <div className="p-4">
           <LeaveCalendar
             // react-calendar only reads defaultActiveStartDate at mount, so a
             // period switch needs a fresh instance to reset which month it shows.
+            // The remount's own mount effect then reports its new
+            // initialMonth via onVisibleMonthChange; the setVisibleMonth(null)
+            // calls above are only a stopgap for the one render in between.
             key={activePeriod.milestoneMonths}
             periodStart={activePeriod.periodStart}
             periodEnd={activePeriod.periodEnd}
+            today={today}
             records={activePeriodRecords}
             selectedDate={selectedDate}
+            isNonWorkingDay={isNonWorkingDay}
             onDateClick={handleCalendarDateClick}
+            onVisibleMonthChange={setVisibleMonth}
           />
         </div>
       </div>
@@ -220,6 +283,16 @@ export default function MainPage({
       </div>
     </div>
   )
+}
+
+/** Every calendar year that any of `periods`' start/end dates falls in. */
+function computeNeededYears(periods) {
+  const years = new Set()
+  periods.forEach((p) => {
+    years.add(p.periodStart.getFullYear())
+    years.add(p.periodEnd.getFullYear())
+  })
+  return years
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────

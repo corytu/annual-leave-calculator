@@ -3,11 +3,13 @@ import { v4 as uuidv4 } from 'uuid'
 import MainPage from './components/MainPage.jsx'
 import Settings from './components/Settings.jsx'
 import { loadSettings, saveSettings, loadRecords, saveRecords, clearAll, DEFAULT_SETTINGS } from './utils/storage.js'
+import { useHolidayCache } from './hooks/useHolidayCache.js'
 
 export default function App() {
   const [page, setPage] = useState('main')
   const [settings, setSettings] = useState(() => loadSettings())
   const [records, setRecords] = useState(() => loadRecords())
+  const { cache: holidayCache, ensureYear, clearCache } = useHolidayCache()
 
   // ── Settings ────────────────────────────────────────────────────────────────
 
@@ -52,10 +54,22 @@ export default function App() {
     clearAll()
     // Deliberately no saveSettings/saveRecords call here (unlike every handler
     // above) -- the point is for both localStorage keys to stay removed.
+    // Doesn't touch the holiday cache: its storage keys use a different
+    // prefix and a resignation reset has nothing to do with holiday data.
     setSettings({ ...DEFAULT_SETTINGS, customRules: [] })
     setRecords([])
     setPage('main')
   }, [])
+
+  // ── Settings page "清除所有本機資料" ────────────────────────────────────────
+
+  const handleClearAllData = useCallback(() => {
+    clearAll()
+    clearCache()
+    setSettings({ ...DEFAULT_SETTINGS, customRules: [] })
+    setRecords([])
+    setPage('main')
+  }, [clearCache])
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -101,6 +115,8 @@ export default function App() {
           <MainPage
             settings={settings}
             records={records}
+            holidayCache={holidayCache}
+            ensureYear={ensureYear}
             onAddRecord={handleAddRecord}
             onUpdateRecord={handleUpdateRecord}
             onDeleteRecord={handleDeleteRecord}
@@ -110,9 +126,12 @@ export default function App() {
           <Settings
             settings={settings}
             records={records}
+            holidayCache={holidayCache}
             onSave={handleSaveSettings}
             onCancel={() => setPage('main')}
             onResign={handleResign}
+            onClearHolidayCache={clearCache}
+            onClearAllData={handleClearAllData}
           />
         )}
       </main>
