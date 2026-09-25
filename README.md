@@ -137,11 +137,11 @@ npx playwright install --with-deps chromium
 
 詳細的開發流程與規範請參考 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
-## 授權
+## 授權與致謝
 
-本專案以 [MIT 授權](LICENSE.txt) 釋出。
+本專案程式碼以 [MIT 授權](LICENSE.txt)釋出。
 
----
+行事曆中的國定假日標示，資料引用自公開 GitHub 專案 [ruyut/TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)，原始資料源自[政府資料開放平臺](https://data.gov.tw/)之「中華民國政府行政機關辦公日曆表」，依創用 CC 姓名標示 4.0 國際版本（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)）條款使用。
 
 ## AI 免責聲明
 
