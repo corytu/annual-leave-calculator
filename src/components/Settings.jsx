@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { checkLaborLawCompliance, getLaborLawDays, calculateSummary, toISODateString, MAX_MILESTONE_MONTHS, MAX_ANNUAL_LEAVE_DAYS } from '../utils/leaveCalculations.js'
 import { buildBackupCsv, downloadCsv } from '../utils/exportCsv.js'
 import { DEFAULT_SETTINGS } from '../utils/storage.js'
 import { validateSettingsInput, getCustomCapMin } from '../utils/settingsValidation.js'
+import { isBlocking, isWarningVisible, dedupeBy } from '../utils/warnings.js'
+import FieldWarnings from './FieldWarnings.jsx'
 
 // Default custom rules pre-populated with labor law as a starting point
 const DEFAULT_CUSTOM_RULES = [
@@ -45,6 +47,8 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
   // Compliance warnings derived from current custom rules
   const [warnings, setWarnings] = useState([])
 
+  const [touched, setTouched] = useState({})
+
   // 'confirm' -> first "are you sure" dialog, 'settlement' -> shows the payout figure
   const [resignStep, setResignStep] = useState(null)
 
@@ -59,15 +63,40 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
     }
   }, [ruleType, customRules, growthPerYear, growthCap])
 
+  const fieldWarnings = useMemo(
+    () => validateSettingsInput({ onboardDate, ruleType, customRules, growthPerYear, growthCap }),
+    [onboardDate, ruleType, customRules, growthPerYear, growthCap]
+  )
+
+  const onboardDateWarnings = fieldWarnings.filter(w =>
+    w.scope === 'field' && w.field === 'onboardDate' && isWarningVisible(w, touched))
+  const rowMonthsWarnings = rule => fieldWarnings.filter(w =>
+    w.scope === 'row' && w.rowId === rule.id && w.field === 'months' && isWarningVisible(w, touched))
+  const rowDaysWarnings = rule => fieldWarnings.filter(w =>
+    w.scope === 'row' && w.rowId === rule.id && w.field === 'days' && isWarningVisible(w, touched))
+  const formWarnings = fieldWarnings.filter(w => w.scope === 'form' && isWarningVisible(w, touched))
+  const dedupedFormWarnings = dedupeBy(formWarnings, w => w.dedupeKey ?? w.id)
+  const growthPerYearWarnings = fieldWarnings.filter(w =>
+    w.scope === 'field' && w.field === 'growthPerYear' && isWarningVisible(w, touched))
+  const growthCapWarnings = fieldWarnings.filter(w =>
+    w.scope === 'field' && w.field === 'growthCap' && isWarningVisible(w, touched))
+
   // ── Custom rules helpers ─────────────────────────────────────────────────
 
   function addCustomRule() {
     const sorted = [...customRules].sort((a, b) => a.months - b.months)
     const lastMonths = sorted.length > 0 ? Number(sorted[sorted.length - 1].months) || 0 : 0
+    const newId = uuidv4()
     setCustomRules(prev => [
       ...prev,
-      { id: uuidv4(), months: lastMonths + 12, days: 15 },
+      { id: newId, months: lastMonths + 12, days: 15 },
     ])
+    // Structurally-added row is treated like backfilling an existing record
+    // (maintainer decision c, see the implementation plan §2/§11): its
+    // values are auto-marked touched so an out-of-range months (e.g. past
+    // MAX_MILESTONE_MONTHS) is immediately visible, unlike a blank field the
+    // user hasn't gotten to yet.
+    setTouched(t => ({ ...t, [`${newId}:months`]: true, [`${newId}:days`]: true }))
   }
 
   function updateCustomRule(id, field, value) {
@@ -83,11 +112,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
   // ── Save ─────────────────────────────────────────────────────────────────
 
   function handleSave() {
-    const error = validateSettingsInput({ onboardDate, ruleType, customRules, growthPerYear, growthCap })
-    if (error) {
-      alert(error)
-      return
-    }
+    if (fieldWarnings.some(w => isBlocking(w.tier))) return // 純防禦，不依賴它當安全網
 
     const normalizedRules = customRules.map(r => ({
       ...r,
@@ -161,6 +186,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
             value={onboardDate}
             disabled={isLocked}
             onChange={e => setOnboardDate(e.target.value)}
+            onBlur={() => setTouched(t => ({ ...t, onboardDate: true }))}
             className="block w-full sm:w-48 rounded-md border border-stone-300 px-3 py-2 text-sm
                        focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500
                        disabled:bg-stone-100 disabled:text-stone-500"
@@ -168,6 +194,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
           <p className="text-xs text-stone-400 mt-1">
             特休年資的計算起點
           </p>
+          <FieldWarnings warnings={onboardDateWarnings} />
         </div>
       </Section>
 
@@ -256,6 +283,12 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                 </div>
               )}
 
+              {dedupedFormWarnings.length > 0 && (
+                <div data-testid="settings-form-warnings">
+                  <FieldWarnings warnings={dedupedFormWarnings} />
+                </div>
+              )}
+
               {/* Rules table */}
               <div className="rounded-lg border border-stone-200 overflow-hidden">
                 <table className="w-full text-sm">
@@ -281,12 +314,14 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                               onChange={e =>
                                 updateCustomRule(rule.id, 'months', e.target.value)
                               }
+                              onBlur={() => setTouched(t => ({ ...t, [`${rule.id}:months`]: true }))}
                               className="w-20 rounded border border-stone-300 px-2 py-1 text-sm
                                          focus:outline-none focus:ring-1 focus:ring-teal-500
                                          disabled:bg-stone-100 disabled:text-stone-500"
                             />
                             <span className="text-stone-500 text-xs">個月</span>
                           </div>
+                          <FieldWarnings warnings={rowMonthsWarnings(rule)} />
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1.5">
@@ -300,12 +335,14 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                               onChange={e =>
                                 updateCustomRule(rule.id, 'days', e.target.value)
                               }
+                              onBlur={() => setTouched(t => ({ ...t, [`${rule.id}:days`]: true }))}
                               className="w-20 rounded border border-stone-300 px-2 py-1 text-sm
                                          focus:outline-none focus:ring-1 focus:ring-teal-500
                                          disabled:bg-stone-100 disabled:text-stone-500"
                             />
                             <span className="text-stone-500 text-xs">天</span>
                           </div>
+                          <FieldWarnings warnings={rowDaysWarnings(rule)} />
                         </td>
                         <td className="px-3 py-2 text-right">
                           <button
@@ -340,6 +377,7 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                             disabled={isLocked}
                             aria-label="每年增加天數"
                             onChange={e => setGrowthPerYear(e.target.value)}
+                            onBlur={() => setTouched(t => ({ ...t, growthPerYear: true }))}
                             className="w-16 rounded border border-stone-300 px-2 py-1 text-sm
                                        focus:outline-none focus:ring-1 focus:ring-teal-500
                                        disabled:bg-stone-100 disabled:text-stone-500"
@@ -354,12 +392,15 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
                             disabled={isLocked || (growthPerYear !== '' && Number(growthPerYear) === 0)}
                             aria-label="天數上限"
                             onChange={e => setGrowthCap(e.target.value)}
+                            onBlur={() => setTouched(t => ({ ...t, growthCap: true }))}
                             className="w-16 rounded border border-stone-300 px-2 py-1 text-sm
                                        focus:outline-none focus:ring-1 focus:ring-teal-500
                                        disabled:bg-stone-100 disabled:text-stone-500"
                           />
                           <span>天</span>
                         </div>
+                        <FieldWarnings warnings={growthPerYearWarnings} />
+                        <FieldWarnings warnings={growthCapWarnings} />
                       </td>
                     </tr>
                   </tbody>
@@ -424,9 +465,11 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
           <>
             <button
               onClick={handleSave}
+              disabled={fieldWarnings.some(w => isBlocking(w.tier))}
               className="px-5 py-2 bg-teal-700 text-white text-sm font-medium rounded-md
                          hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500
-                         focus:ring-offset-1 transition-colors"
+                         focus:ring-offset-1 transition-colors
+                         disabled:opacity-40 disabled:hover:bg-teal-700"
             >
               儲存設定
             </button>

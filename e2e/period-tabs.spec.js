@@ -84,10 +84,13 @@ test.describe('期別分頁', () => {
     // at its own threshold), but it drops the carryIn flowing into 12~24mo from
     // 2 to -7, pushing that period's availableTotal (-7+7-15 = -15) below its
     // -10 threshold.
+    // Entering edit mode already marks startDate/days touched (§6.4), so the
+    // warning becomes visible as soon as the value changes -- no blur needed,
+    // and the disabled button can no longer be clicked to trigger a dialog.
     await page.locator('input[type="number"]').first().fill('10')
-    await page.getByRole('button', { name: '儲存變更' }).click()
 
-    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確')).toBeVisible()
+    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存變更' })).toBeDisabled()
     await expect(page.getByTestId('record-days')).toContainText('1 天')
   })
 

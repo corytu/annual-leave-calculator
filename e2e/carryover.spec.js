@@ -120,10 +120,13 @@ test.describe('跨兩個週年度的鏈式遞延', () => {
     await expect(page.locator('input[type="number"]').first()).toHaveValue('15')
 
     // Editing to 21 days pushes availableTotal to 2+7-21 = -12, below the -10 threshold.
+    // Entering edit mode already marks startDate/days touched (§6.4), so the
+    // warning becomes visible as soon as the value changes -- no blur needed,
+    // and the disabled button can no longer be clicked to trigger a dialog.
     await page.locator('input[type="number"]').first().fill('21')
-    await page.getByRole('button', { name: '儲存變更' }).click()
 
-    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確')).toBeVisible()
+    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '儲存變更' })).toBeDisabled()
     await expect(page.getByTestId('record-days')).toContainText('15 天')
   })
 })

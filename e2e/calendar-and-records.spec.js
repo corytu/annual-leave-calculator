@@ -131,10 +131,12 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
 
   test('日期超出當前週期範圍時顯示錯誤，不允許送出', async ({ page }) => {
     // 2025-06-01 is before periodStart (2025-06-15).
-    await page.locator('input[type="date"]').fill('2025-06-01')
-    await page.getByRole('button', { name: '新增', exact: true }).click()
+    const dateInput = page.locator('input[type="date"]')
+    await dateInput.fill('2025-06-01')
+    await dateInput.blur()
 
-    await expect(page.getByText('日期必須在本週年度範圍內')).toBeVisible()
+    await expect(page.getByText('日期必須在本週年度範圍內', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新增', exact: true })).toBeDisabled()
     await expect(page.getByText('本週年度尚無請假記錄')).toBeVisible()
   })
 
@@ -142,11 +144,90 @@ test.describe('月曆互動與請假記錄 CRUD', () => {
     // Current period entitlement is 7 days (12mo milestone); allowCarryover is
     // false, so the overspend guard is exactly the period's own entitlement.
     await page.locator('input[type="date"]').fill('2025-06-20')
-    await page.locator('input[type="number"]').first().fill('11')
+    const daysInput = page.locator('input[type="number"]').first()
+    await daysInput.fill('11')
+    await daysInput.blur()
+
+    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新增', exact: true })).toBeDisabled()
+    await expect(page.getByText('本週年度尚無請假記錄')).toBeVisible()
+  })
+
+  test('天數輸入合法值但未 blur，仍可直接點新增送出（disabled 不看 touched，只看實際是否阻擋，B1）', async ({ page }) => {
+    await page.locator('input[type="date"]').fill('2025-06-20')
+    await page.locator('input[type="number"]').first().fill('2')
+    // Deliberately no blur on the days input before clicking submit.
     await page.getByRole('button', { name: '新增', exact: true }).click()
 
-    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確')).toBeVisible()
-    await expect(page.getByText('本週年度尚無請假記錄')).toBeVisible()
+    await expect(page.getByText('2025-06-20')).toBeVisible()
+    await expect(page.getByTestId('summary-taken')).toContainText('2')
+  })
+
+  test('初次進入表單時無警示文字，但新增按鈕已是 disabled（尚未輸入必填欄位）', async ({ page }) => {
+    await expect(page.getByRole('button', { name: '新增', exact: true })).toBeDisabled()
+    await expect(page.getByText('請選擇請假開始日期')).toHaveCount(0)
+    await expect(page.getByText('請輸入天數')).toHaveCount(0)
+  })
+
+  test('日期欄位留空但已 blur 過時，顯示「請選擇請假開始日期」', async ({ page }) => {
+    const dateInput = page.locator('input[type="date"]')
+    await dateInput.focus()
+    await dateInput.blur()
+
+    await expect(page.getByText('請選擇請假開始日期', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新增', exact: true })).toBeDisabled()
+  })
+
+  test('天數非 0.25 倍數時顯示錯誤', async ({ page }) => {
+    await page.locator('input[type="date"]').fill('2025-06-20')
+    const daysInput = page.locator('input[type="number"]').first()
+    await daysInput.fill('1.1')
+    await daysInput.blur()
+
+    await expect(page.getByText('天數最小單位為 0.25（2 小時）', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新增', exact: true })).toBeDisabled()
+  })
+
+  test('只透過點月曆選日期就能觸發超支警示（W16：任一相關欄位 touched 即可，回歸測試）', async ({ page }) => {
+    // Seed a record that uses up the entire period's 7-day entitlement, so
+    // any newly selected date with the default days value (1) is guaranteed
+    // to overspend. 2025-06-16(Mon) + 7 weekday-only days occupies
+    // 16,17,18,19,20,23,24 -- 2025-06-30 stays free of it.
+    await seedAppStorage(page, {
+      settings: BASE_SETTINGS,
+      records: [{ id: 'r1', startDate: '2025-06-16', days: 7 }],
+    })
+    await page.reload()
+
+    // Deliberately never touch the date/days inputs directly -- only the
+    // calendar tile is clicked, so `days` is never touched either.
+    const day30 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 30 }), exact: true })
+    await day30.click()
+
+    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新增', exact: true })).toBeDisabled()
+  })
+
+  test('刪除既有記錄後，超支警示自動解除（不需要重新操作表單欄位，驗證 useMemo 依賴 allRecords）', async ({ page }) => {
+    await seedAppStorage(page, {
+      settings: BASE_SETTINGS,
+      records: [{ id: 'r1', startDate: '2025-06-16', days: 5 }],
+    })
+    await page.reload()
+
+    const day30 = page.getByRole('button', { name: zhDayLabel({ year: 2025, month: 6, day: 30 }), exact: true })
+    await day30.click()
+    const daysInput = page.locator('input[type="number"]').first()
+    await daysInput.fill('3')
+    await daysInput.blur()
+
+    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新增', exact: true })).toBeDisabled()
+
+    await page.getByRole('button', { name: '刪除' }).click()
+
+    await expect(page.getByText('這筆請假超支可用額度上限，請確認天數是否正確')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '新增', exact: true })).toBeEnabled()
   })
 
   test('天數輸入框：清空欄位不會被強制填回 0，且沒有 max 屬性 (#30)', async ({ page }) => {
