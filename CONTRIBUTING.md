@@ -60,6 +60,10 @@ npm run test:e2e        # 端對端測試
 
 目前專案未設定 ESLint／Prettier 等自動化工具，請盡量遵循現有程式碼的風格與慣例（既有的元件與 utils 結構）撰寫程式碼。
 
+## 國定假日資料維護
+
+國定假日資料取自 [ruyut/TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)，已抓取成功的年度會永久快取在使用者的瀏覽器中，不會自動重新下載。若政府修改已公布年度的辦公日曆表（例如修法新增國定假日），或資料源的既有檔案有誤並已修正，請將 `src/utils/holidayCache.js` 的 `HOLIDAY_CACHE_VERSION` 加一並重新部署，所有使用者下次開啟網站時會自動重新下載。
+
 ## 授權
 
 提交至本專案的貢獻，將以與本專案相同的 [MIT 授權](LICENSE.txt) 釋出。

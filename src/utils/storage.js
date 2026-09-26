@@ -87,3 +87,17 @@ export function clearAll() {
   localStorage.removeItem(KEYS.settings);
   localStorage.removeItem(KEYS.records);
 }
+
+/**
+ * Whether the user has ever saved settings or records. Only true once
+ * `saveSettings`/`saveRecords` has actually run (e.g. via the Settings page
+ * save button) -- mounting the app never writes DEFAULT_SETTINGS back to
+ * storage, so a first-time visitor who hasn't saved anything yet is `false`.
+ */
+export function hasAnyAppData() {
+  try {
+    return localStorage.getItem(KEYS.settings) !== null || localStorage.getItem(KEYS.records) !== null;
+  } catch {
+    return false;
+  }
+}

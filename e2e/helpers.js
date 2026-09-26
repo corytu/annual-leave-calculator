@@ -59,3 +59,84 @@ export async function seedAppStorage(page, { settings, records } = {}) {
     ]
   )
 }
+
+const HOLIDAY_CDN_PATTERN = 'https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/*.json'
+
+/**
+ * Intercept every TaiwanCalendar CDN request for the test's lifetime. Call
+ * BEFORE page.goto() (right after freezeTime()).
+ *
+ * `handler` may be async / return a Promise that resolves late, enabling
+ * delayed-response tests. It may also be a stateful closure (call counter,
+ * or an outer `let` the test flips) to simulate "fails then succeeds on
+ * retry" or "first vs. second request for the same year returns different
+ * bodies".
+ * Default (handler omitted): every year -> 404, classifying as
+ * pending/unavailable -- the quietest baseline for specs that don't care
+ * about holidays. Deliberately NOT route.abort() by default, which would
+ * classify as error (red note text) instead.
+ *
+ * Not an auto fixture -- every future spec that renders MainPage must call
+ * this itself, right after freezeTime(), or it will hit the real CDN. There
+ * is no autouse fixture wiring this in; if a new spec forgets, its test will
+ * make a live network request in CI.
+ */
+export async function mockHolidayCdn(page, handler = () => ({ status: 404 })) {
+  await page.route(HOLIDAY_CDN_PATTERN, async (route) => {
+    const year = Number(new URL(route.request().url()).pathname.match(/(\d{4})\.json$/)?.[1])
+    const result = await handler(year)
+    if (result === 'abort') {
+      await route.abort()
+    } else if (result.status === 200) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(result.body) })
+    } else {
+      await route.fulfill({ status: result.status ?? 404, body: '' })
+    }
+  })
+}
+
+/**
+ * Build a realistic TaiwanCalendar year body: every Saturday/Sunday in
+ * `year` marked isHoliday, plus any extra ISO dates (weekday national
+ * holidays / makeup workdays) layered on top. Real API data marks isHoliday
+ * on weekends too (see §2.1) -- tests that only listed one weekday date were
+ * silently missing this and could get wrong dot-extension results whenever a
+ * leave record crossed a real weekend.
+ *
+ * `excludeIsoDates`: weekends to OMIT from the generated body (e.g. a
+ * makeup workday Saturday, 補班). The real API represents a makeup workday
+ * as that date simply not being isHoliday; since toHolidayDateSet() only
+ * reads entries where isHoliday is true, omitting the entry has the same
+ * parsed effect as an explicit isHoliday:false entry, so this stays a plain
+ * omission rather than pushing a redundant entry.
+ */
+export function buildHolidayYearBody(year, extraHolidayIsoDates = [], excludeIsoDates = []) {
+  const excluded = new Set(excludeIsoDates)
+  const entries = []
+  const cursor = new Date(year, 0, 1)
+  while (cursor.getFullYear() === year) {
+    if (cursor.getDay() === 0 || cursor.getDay() === 6) {
+      const iso = toISODateStringLocal(cursor)
+      if (!excluded.has(iso)) entries.push({ date: toYYYYMMDD(cursor), isHoliday: true })
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  extraHolidayIsoDates.forEach((iso) => {
+    entries.push({ date: iso.replaceAll('-', ''), isHoliday: true })
+  })
+  return entries
+}
+
+function toYYYYMMDD(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}${m}${d}`
+}
+
+function toISODateStringLocal(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}

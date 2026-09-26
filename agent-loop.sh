@@ -6,8 +6,12 @@ set -euo pipefail
 # ============================================================
 #
 # 用法:
-#   ./agent-loop.sh plan <concept-plan-file>
+#   ./agent-loop.sh plan <concept-plan-file> [seed-plan-file]
 #       Plan 審查迴圈:Coder 產出實作計畫 -> Reviewer 審查 -> 迴圈直到核准
+#       seed-plan-file(可省略):一份既有的實作計畫(例如上一次跑到輪數上限時,
+#       Coder 最後一版還沒被審過的計畫)。有給的話就跳過 Round 0(不讓 Coder 從頭
+#       產生初版),直接拿它當起點送 Reviewer 審查。用途是「接續」一次沒收斂的
+#       plan 迴圈,避免從零重來把已經收斂的討論重新打開。
 #
 #   ./agent-loop.sh diff <base-ref> [approved-plan-file] [concept-plan-file]
 #       Diff 覆核迴圈:對 <base-ref> 做 git diff(含新增的 untracked 檔案) -> Reviewer 覆核 -> 迴圈直到核准
@@ -252,34 +256,47 @@ capture_diff_including_untracked() {
 
 run_plan_review_loop() {
   local concept_plan_file="$1"
+  local seed_plan_file="${2:-}"
   if [[ ! -f "${concept_plan_file}" ]]; then
     echo "❌ 找不到概念計畫檔案: ${concept_plan_file}" >&2
     exit 1
   fi
 
-  echo "=== Round 0: Coder 產出初版實作計畫(plan mode) ==="
-  local prompt_file="${RUN_DIR}/round-0-coder-prompt.txt"
-  {
-    echo "以下是已經敲定的概念計畫。請以 plan mode 產出一份詳細的程式實作計畫(不要修改任何檔案),"
-    echo "內容要包含具體的檔案異動範圍、資料流、以及你認為需要特別注意的邊界情境。"
-    echo
-    echo "**請把完整的實作計畫放進回覆的結構化 plan 欄位裡。不需要另外把計畫存成"
-    echo "檔案或使用任何工具——就算你習慣這麼做,這次也不需要,plan 欄位裡的內容"
-    echo "才是唯一會被後續流程讀取的地方。**"
-    echo "**對於比較關鍵的設計決策,請在計畫裡順手註記簡短理由(為什麼這樣做、"
-    echo "排除了哪些替代方案)——這是全新的 session,理由如果沒有寫進計畫文字本身,"
-    echo "之後就再也看不到了。**"
-    echo
-    echo "## 概念計畫"
-    cat "${concept_plan_file}"
-  } >"${prompt_file}"
-
-  local resp
-  resp="$(coder_call "${prompt_file}" "plan" "${PLAN_SCHEMA}")"
-  require_success "${resp}" "Coder(round 0)"
   local plan_text
-  plan_text="$(echo "${resp}" | jq -r '.structured_output.plan // empty')"
-  log "round-0" "Coder(plan)" "${plan_text}"
+  if [[ -n "${seed_plan_file}" ]]; then
+    # 接續模式:跳過 Round 0,直接用既有計畫當起點。
+    if [[ ! -s "${seed_plan_file}" ]]; then
+      echo "❌ 找不到起始計畫檔案,或檔案是空的: ${seed_plan_file}" >&2
+      exit 1
+    fi
+    echo "=== Round 0: 略過 Coder 初版產出,以 ${seed_plan_file} 作為起始實作計畫 ==="
+    cp "${seed_plan_file}" "${RUN_DIR}/seed-plan.md"
+    plan_text="$(cat "${seed_plan_file}")"
+    log "round-0" "Seed plan(來源:${seed_plan_file})" "${plan_text}"
+  else
+    echo "=== Round 0: Coder 產出初版實作計畫(plan mode) ==="
+    local prompt_file="${RUN_DIR}/round-0-coder-prompt.txt"
+    {
+      echo "以下是已經敲定的概念計畫。請以 plan mode 產出一份詳細的程式實作計畫(不要修改任何檔案),"
+      echo "內容要包含具體的檔案異動範圍、資料流、以及你認為需要特別注意的邊界情境。"
+      echo
+      echo "**請把完整的實作計畫放進回覆的結構化 plan 欄位裡。不需要另外把計畫存成"
+      echo "檔案或使用任何工具——就算你習慣這麼做,這次也不需要,plan 欄位裡的內容"
+      echo "才是唯一會被後續流程讀取的地方。**"
+      echo "**對於比較關鍵的設計決策,請在計畫裡順手註記簡短理由(為什麼這樣做、"
+      echo "排除了哪些替代方案)——這是全新的 session,理由如果沒有寫進計畫文字本身,"
+      echo "之後就再也看不到了。**"
+      echo
+      echo "## 概念計畫"
+      cat "${concept_plan_file}"
+    } >"${prompt_file}"
+
+    local resp
+    resp="$(coder_call "${prompt_file}" "plan" "${PLAN_SCHEMA}")"
+    require_success "${resp}" "Coder(round 0)"
+    plan_text="$(echo "${resp}" | jq -r '.structured_output.plan // empty')"
+    log "round-0" "Coder(plan)" "${plan_text}"
+  fi
 
   local prev_verdict_text=""
   local round=1
@@ -471,13 +488,13 @@ run_diff_review_loop() {
 
 case "${1:-}" in
 plan)
-  run_plan_review_loop "${2:?請提供概念計畫檔案路徑,例如: docs/plan-concept.md}"
+  run_plan_review_loop "${2:?請提供概念計畫檔案路徑,例如: docs/plan-concept.md}" "${3:-}"
   ;;
 diff)
   run_diff_review_loop "${2:?請提供要比較的 base ref,例如: master 或某個 commit hash}" "${3:-}" "${4:-}"
   ;;
 *)
-  echo "用法: $0 plan <concept-plan-file> | diff <base-ref> [approved-plan-file] [concept-plan-file]" >&2
+  echo "用法: $0 plan <concept-plan-file> [seed-plan-file] | diff <base-ref> [approved-plan-file] [concept-plan-file]" >&2
   exit 1
   ;;
 esac

@@ -1,16 +1,21 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   loadSettings,
   saveSettings,
   loadRecords,
   saveRecords,
   clearAll,
+  hasAnyAppData,
   DEFAULT_SETTINGS,
 } from './storage.js'
 
 // jsdom provides a working localStorage; just make sure each test starts clean.
 beforeEach(() => {
   localStorage.clear()
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('loadSettings', () => {
@@ -87,6 +92,42 @@ describe('saveRecords -> loadRecords round trip', () => {
     ]
     saveRecords(records)
     expect(loadRecords()).toEqual(records)
+  })
+})
+
+describe('hasAnyAppData', () => {
+  it('returns false when nothing is stored', () => {
+    expect(hasAnyAppData()).toBe(false)
+  })
+
+  it('returns true when settings alone are stored', () => {
+    saveSettings(DEFAULT_SETTINGS)
+    expect(hasAnyAppData()).toBe(true)
+  })
+
+  it('returns true when records alone are stored', () => {
+    saveRecords([])
+    expect(hasAnyAppData()).toBe(true)
+  })
+
+  it('returns true when both settings and records are stored', () => {
+    saveSettings(DEFAULT_SETTINGS)
+    saveRecords([{ id: '1', startDate: '2024-01-08', days: 1 }])
+    expect(hasAnyAppData()).toBe(true)
+  })
+
+  it('returns false again after clearAll', () => {
+    saveSettings(DEFAULT_SETTINGS)
+    saveRecords([])
+    clearAll()
+    expect(hasAnyAppData()).toBe(false)
+  })
+
+  it('returns false when localStorage access itself throws', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError')
+    })
+    expect(hasAnyAppData()).toBe(false)
   })
 })
 

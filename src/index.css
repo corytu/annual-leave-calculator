@@ -122,11 +122,6 @@
   background: #0d9488 !important;
 }
 
-/* Dates outside the active period */
-.react-calendar__tile--out-of-period {
-  color: #d1d5db;
-}
-
 /* Leave dot indicator */
 .leave-dot {
   position: absolute;
@@ -149,4 +144,54 @@
 
 .react-calendar__month-view__days__day--neighboringMonth {
   color: #d1d5db;
+}
+
+/* Dates outside the active period. Placed after the --weekend rule above on
+   purpose: both are specificity (0,1,0), so with them tied, source order
+   decides -- and out-of-period weekend tiles must show the paler
+   out-of-period gray, not the darker native weekend gray. */
+.react-calendar__tile--out-of-period {
+  color: #d1d5db;
+}
+
+/* National holidays (including weekends the source data marks as isHoliday)
+   render as dark-red text on the date number itself, not a second dot. Which
+   tiles get this class is decided by isNonWorkingDay(date) in
+   LeaveCalendar.jsx, not by react-calendar's native --weekend class, so a
+   compensatory workday (補班, a Saturday/Sunday isNonWorkingDay reports as
+   working) never gets this and keeps the plain #6b7280 weekend color. */
+.react-calendar__tile--holiday:not(.react-calendar__tile--out-of-period) {
+  color: #9f1239;
+}
+
+/* Un-selected holiday tile on hover/focus (0,4,0): must beat the generic
+   .react-calendar__tile:enabled:hover/:focus rule above (0,3,0), which would
+   otherwise repaint it teal. The pale background is the holiday red's
+   counterpart (rose-50) of the generic rule's teal-50. */
+.react-calendar__tile--holiday:not(.react-calendar__tile--out-of-period):enabled:hover,
+.react-calendar__tile--holiday:not(.react-calendar__tile--out-of-period):enabled:focus {
+  background: #fff1f2;
+  color: #9f1239;
+}
+
+/* Today is a holiday (0,3,0): swap --now's pale teal background for the
+   pale holiday red; --now's bold weight is kept, and the text color already
+   comes from the holiday rule above. */
+.react-calendar__tile--now.react-calendar__tile--holiday:not(.react-calendar__tile--out-of-period) {
+  background: #fff1f2;
+}
+
+/* Selected holiday tile: dark-red background, white text. */
+.react-calendar__tile--active.react-calendar__tile--holiday {
+  background: #9f1239 !important;
+  color: white !important;
+}
+
+/* Selected holiday tile on hover/focus (0,4,0) + !important: must beat the
+   existing --active:enabled:hover/:focus rule above ((0,3,0) + !important),
+   which would otherwise flip the background back to teal (#0d9488) while
+   focus is retained after a click. */
+.react-calendar__tile--active.react-calendar__tile--holiday:enabled:hover,
+.react-calendar__tile--active.react-calendar__tile--holiday:enabled:focus {
+  background: #9f1239 !important;
 }

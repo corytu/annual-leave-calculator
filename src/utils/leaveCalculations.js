@@ -52,6 +52,17 @@ export function getCompletedMonths(from, to) {
 }
 
 /**
+ * Pick which month a calendar should default to: the month containing
+ * `today` when `today` falls inside the period, otherwise the period's
+ * first month.
+ */
+export function getDefaultVisibleMonth(periodStart, periodEnd, today = new Date()) {
+  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const base = t >= periodStart && t <= periodEnd ? t : periodStart
+  return new Date(base.getFullYear(), base.getMonth(), 1)
+}
+
+/**
  * Format a Date to YYYY-MM-DD (local date, not UTC).
  */
 export function toISODateString(date) {
@@ -358,19 +369,21 @@ export const MAX_LEAVE_RECORD_DATES = 3 * MAX_ANNUAL_LEAVE_DAYS;
 
 /**
  * Expand a leave record's startDate + days into the list of calendar dates
- * it actually spans, skipping Saturdays and Sundays. Each weekday consumes
+ * it actually spans, skipping non-working days. Each working day consumes
  * 1 unit of `days`; a fractional trailing day still counts as a spanned date.
  *
  * `startDate` is a record's startDate field, a 'YYYY-MM-DD' string (storage.js).
  *
- * Only Saturdays/Sundays are skipped -- national holidays and their
- * compensatory workdays (補班日) are not taken into account (#33).
+ * `isNonWorkingDay` defaults to weekends-only for backward compatibility;
+ * callers that have holiday data pass `makeIsNonWorkingDay(holidayCache)`
+ * instead so the expansion also skips national holidays and correctly
+ * includes compensatory workdays (補班日) as working days (#33).
  *
  * Bounded by MAX_LEAVE_RECORD_DATES (#29); this only affects calendar dots --
  * getLeaveTakenInPeriod sums the raw `days` value directly, so a corrupt
  * record still shows up as an overspend in the summary (not silently hidden).
  */
-export function getLeaveRecordDates(startDate, days) {
+export function getLeaveRecordDates(startDate, days, isNonWorkingDay = defaultWeekendCheck) {
   const start = parseLocalDate(startDate);
   const cursor = new Date(start);
   const dates = [];
@@ -380,14 +393,35 @@ export function getLeaveRecordDates(startDate, days) {
   // loop; this check exists to make that intent explicit.
   if (!Number.isFinite(remaining)) return dates;
   while (remaining > 0 && dates.length < MAX_LEAVE_RECORD_DATES) {
-    const dow = cursor.getDay();
-    if (dow !== 0 && dow !== 6) {
+    if (!isNonWorkingDay(cursor)) {
       dates.push(toISODateString(cursor));
       remaining -= 1;
     }
     cursor.setDate(cursor.getDate() + 1);
   }
   return dates;
+}
+
+function defaultWeekendCheck(date) {
+  return date.getDay() === 0 || date.getDay() === 6;
+}
+
+/**
+ * Build an `isNonWorkingDay(date)` predicate backed by a year -> holiday-cache
+ * entry map (see useHolidayCache.js). For a year with `available` data,
+ * `isHoliday` from the source is the sole source of truth (it already covers
+ * weekends and compensatory workdays, see §2.1 of the design doc); for any
+ * other year (no data yet, `pending`, `loading`, `error`, `unavailable`) it
+ * falls back to weekends-only. The same instance should be passed to both
+ * getLeaveRecordDates (dot expansion) and LeaveCalendar's tileClassName
+ * (visual highlighting) so the two never disagree.
+ */
+export function makeIsNonWorkingDay(holidayCache) {
+  return function isNonWorkingDay(date) {
+    const entry = holidayCache[date.getFullYear()];
+    if (entry?.status === 'available') return entry.dates.has(toISODateString(date));
+    return defaultWeekendCheck(date);
+  };
 }
 
 /**

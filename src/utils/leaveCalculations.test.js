@@ -4,6 +4,7 @@ import {
   getCompletedMonths,
   toISODateString,
   parseLocalDate,
+  getDefaultVisibleMonth,
   getLaborLawDays,
   getDaysForMilestone,
   getMilestones,
@@ -11,6 +12,7 @@ import {
   getPeriodContainingDate,
   getLeaveTakenInPeriod,
   getLeaveRecordDates,
+  makeIsNonWorkingDay,
   computePeriodLedger,
   validateRecordsChain,
   calculateSummary,
@@ -81,6 +83,35 @@ describe('toISODateString / parseLocalDate', () => {
 
   it('round-trips a year-boundary date', () => {
     expect(toISODateString(parseLocalDate('2023-12-31'))).toBe('2023-12-31')
+  })
+})
+
+describe('getDefaultVisibleMonth', () => {
+  const periodStart = d('2025-06-01')
+  const periodEnd = d('2026-05-31')
+
+  it('defaults to the month containing today when today falls inside the period', () => {
+    const today = d('2025-08-20')
+    expect(toISODateString(getDefaultVisibleMonth(periodStart, periodEnd, today))).toBe('2025-08-01')
+  })
+
+  it('falls back to the period start month when today is before the period', () => {
+    const today = d('2025-01-15')
+    expect(toISODateString(getDefaultVisibleMonth(periodStart, periodEnd, today))).toBe('2025-06-01')
+  })
+
+  it('falls back to the period start month when today is after the period', () => {
+    const today = d('2026-09-01')
+    expect(toISODateString(getDefaultVisibleMonth(periodStart, periodEnd, today))).toBe('2025-06-01')
+  })
+
+  it('still recognizes periodEnd as "inside" the period when today carries a non-midnight time', () => {
+    const todayWithTime = new Date(2026, 4, 31, 23, 59, 30) // 2026-05-31 23:59:30, same day as periodEnd
+    expect(toISODateString(getDefaultVisibleMonth(periodStart, periodEnd, todayWithTime))).toBe('2026-05-01')
+  })
+
+  it('defaults to `new Date()` when today is not passed', () => {
+    expect(getDefaultVisibleMonth(d('1970-01-01'), d('2999-01-01')).getDate()).toBe(1)
   })
 })
 
@@ -456,6 +487,69 @@ describe('getLeaveRecordDates', () => {
     it('treats a numeric string the same as the equivalent number', () => {
       expect(getLeaveRecordDates('2026-09-01', '5')).toEqual(getLeaveRecordDates('2026-09-01', 5))
     })
+  })
+
+  describe('isNonWorkingDay (holiday-aware expansion, #33)', () => {
+    it('defaults to weekends-only when no predicate is passed (backward compatible)', () => {
+      // 2026-09-04 is a Friday; 09-05/09-06 are the weekend, so 3 days
+      // starting there should skip the weekend and land on 09-04, 09-07,
+      // 09-08. A tautological comparison against another omitted-argument
+      // call would still pass even if the default predicate were broken
+      // (e.g. always returning false), so assert the concrete expansion.
+      expect(getLeaveRecordDates('2026-09-04', 3)).toEqual([
+        '2026-09-04', '2026-09-07', '2026-09-08',
+      ])
+    })
+
+    it('skips a date the predicate reports as non-working, even a weekday (2026-09-03 is a Thursday)', () => {
+      const isNonWorkingDay = (date) => toISODateString(date) === '2026-09-03'
+      expect(getLeaveRecordDates('2026-09-01', 3, isNonWorkingDay)).toEqual([
+        '2026-09-01', '2026-09-02', '2026-09-04',
+      ])
+    })
+
+    it('treats a Saturday the predicate reports as working (補班) as a spanned date', () => {
+      // 2026-09-05 is a Saturday; the predicate says it's a working day.
+      const isNonWorkingDay = (date) => date.getDay() === 0
+      expect(getLeaveRecordDates('2026-09-04', 3, isNonWorkingDay)).toEqual([
+        '2026-09-04', '2026-09-05', '2026-09-07',
+      ])
+    })
+  })
+})
+
+describe('makeIsNonWorkingDay', () => {
+  it('uses the holiday dates Set for a year with `available` status', () => {
+    const isNonWorkingDay = makeIsNonWorkingDay({
+      2025: { status: 'available', dates: new Set(['2025-01-01']) },
+    })
+    expect(isNonWorkingDay(d('2025-01-01'))).toBe(true)
+    // 2025-01-02 is a Thursday and not in the Set -- working, even though
+    // it's a weekday anyway; the important part is the Set is authoritative.
+    expect(isNonWorkingDay(d('2025-01-02'))).toBe(false)
+  })
+
+  it('treats an `available` weekend NOT in the dates Set as a working day (補班)', () => {
+    // 2025-01-04 is a Saturday, deliberately absent from the Set.
+    const isNonWorkingDay = makeIsNonWorkingDay({
+      2025: { status: 'available', dates: new Set(['2025-01-01']) },
+    })
+    expect(isNonWorkingDay(d('2025-01-04'))).toBe(false)
+  })
+
+  it.each(['loading', 'pending', 'error', 'unavailable'])(
+    'falls back to weekends-only for a year with status %s',
+    (status) => {
+      const isNonWorkingDay = makeIsNonWorkingDay({ 2025: { status } })
+      expect(isNonWorkingDay(d('2025-01-01'))).toBe(false) // Wednesday
+      expect(isNonWorkingDay(d('2025-01-04'))).toBe(true) // Saturday
+    }
+  )
+
+  it('falls back to weekends-only for a year with no cache entry at all', () => {
+    const isNonWorkingDay = makeIsNonWorkingDay({})
+    expect(isNonWorkingDay(d('2025-01-01'))).toBe(false) // Wednesday
+    expect(isNonWorkingDay(d('2025-01-04'))).toBe(true) // Saturday
   })
 })
 

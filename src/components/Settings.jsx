@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { checkLaborLawCompliance, getLaborLawDays, calculateSummary, toISODateString, MAX_MILESTONE_MONTHS, MAX_ANNUAL_LEAVE_DAYS } from '../utils/leaveCalculations.js'
 import { buildBackupCsv, downloadCsv } from '../utils/exportCsv.js'
-import { DEFAULT_SETTINGS } from '../utils/storage.js'
+import { DEFAULT_SETTINGS, hasAnyAppData } from '../utils/storage.js'
 import { validateSettingsInput, getCustomCapMin } from '../utils/settingsValidation.js'
 import { isBlocking, isWarningVisible, dedupeBy } from '../utils/warnings.js'
 import FieldWarnings from './FieldWarnings.jsx'
@@ -23,7 +23,10 @@ const DEFAULT_CUSTOM_RULES = [
 // an existing user's days -- see isLocked below.
 const DEFAULT_CUSTOM_GROWTH = { perYear: 1, cap: 30 }
 
-export default function Settings({ settings, records, onSave, onCancel, onResign }) {
+export default function Settings({
+  settings, records, holidayCache, onSave, onCancel, onResign,
+  onClearHolidayCache, onClearAllData,
+}) {
   const isLocked = Boolean(settings.onboardDate)
 
   const [onboardDate,    setOnboardDate]    = useState(settings.onboardDate    || '')
@@ -51,6 +54,9 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
 
   // 'confirm' -> first "are you sure" dialog, 'settlement' -> shows the payout figure
   const [resignStep, setResignStep] = useState(null)
+
+  // null -> no dialog, 'clearHoliday' / 'clearAll' -> matching confirm dialog
+  const [dataActionStep, setDataActionStep] = useState(null)
 
   useEffect(() => {
     if (ruleType === 'custom') {
@@ -152,6 +158,29 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
   function handleConfirmResign() {
     onResign()
     setResignStep(null)
+  }
+
+  // ── Holiday cache / local data management ───────────────────────────────
+
+  // Deliberately not "only localStorage-persisted (available/unavailable)
+  // entries count" -- the concept plan promises the clear button works while
+  // a year is still `pending`, and only available/unavailable ever get
+  // persisted (§2.4), so that stricter definition would leave the button
+  // disabled exactly when a user would want to use it. Any entry at all
+  // (regardless of status) counts as "there's something to clear". Computed
+  // inline on every render, so it re-evaluates immediately after a clear.
+  const hasHolidayCache = Object.keys(holidayCache).length > 0
+  const canClearHolidayCacheOnly = hasHolidayCache
+  const canClearAllData = hasAnyAppData() || hasHolidayCache
+
+  function handleClearHolidayCache() {
+    onClearHolidayCache()
+    setDataActionStep(null)
+  }
+
+  function handleClearAllData() {
+    onClearAllData()
+    setDataActionStep(null)
   }
 
   const sortedRules = [...customRules].sort((a, b) => a.months - b.months)
@@ -459,6 +488,34 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
         </div>
       </Section>
 
+      {/* ── 本機資料管理 ─────────────────────────────────────────────────── */}
+      <Section title="本機資料管理">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            type="button"
+            onClick={() => setDataActionStep('clearHoliday')}
+            disabled={!canClearHolidayCacheOnly}
+            className="px-4 py-2 text-stone-600 text-sm font-medium rounded-md border border-stone-300
+                       hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-stone-400
+                       focus:ring-offset-1 transition-colors
+                       disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            清除國定假日快取
+          </button>
+          <button
+            type="button"
+            onClick={() => setDataActionStep('clearAll')}
+            disabled={!canClearAllData}
+            className="px-4 py-2 text-red-600 text-sm font-medium rounded-md border border-red-200
+                       hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400
+                       focus:ring-offset-1 transition-colors
+                       disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            清除所有本機資料
+          </button>
+        </div>
+      </Section>
+
       {/* ── Action buttons ───────────────────────────────────────────────── */}
       <div className="flex gap-3 pt-2">
         {!isLocked && (
@@ -523,6 +580,9 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
           <p className="text-sm text-stone-700">
             應結清工資天數：<span className="font-semibold">{settlementDays}</span> 天
           </p>
+          <p className="text-xs text-stone-400">
+            （不含瀏覽器暫存的國定假日資料；如需一併清除請至設定頁「清除所有本機資料」）
+          </p>
           <div className="flex flex-wrap justify-end gap-3">
             <button
               onClick={handleExportCsv}
@@ -539,6 +599,51 @@ export default function Settings({ settings, records, onSave, onCancel, onResign
             </button>
             <button
               onClick={handleConfirmResign}
+              className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors"
+            >
+              確定清空
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── 本機資料管理 modals ──────────────────────────────────────────── */}
+      {dataActionStep === 'clearHoliday' && (
+        <Modal>
+          <p className="text-sm text-stone-700">
+            將清除國定假日快取，未來使用時將觸發重新下載
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => setDataActionStep(null)}
+              className="px-4 py-2 text-stone-600 text-sm font-medium rounded-md hover:bg-stone-100 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleClearHolidayCache}
+              className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors"
+            >
+              確定清空
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {dataActionStep === 'clearAll' && (
+        <Modal>
+          <p className="text-sm text-stone-700">
+            將清空所有資料，請自行備份重要資訊
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => setDataActionStep(null)}
+              className="px-4 py-2 text-stone-600 text-sm font-medium rounded-md hover:bg-stone-100 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleClearAllData}
               className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors"
             >
               確定清空
