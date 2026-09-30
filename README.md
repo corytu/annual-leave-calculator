@@ -44,7 +44,12 @@
    npm run dev -- --host
    ```
 
-> 此 Dev Container 內建 [Claude Code](https://claude.com/claude-code) CLI 工具，方便搭配 AI 輔助開發（例如下方「開發輔助工具」一節提到的 `agent-loop.sh`）。若要在容器內使用 `claude` 指令，需先在**主機**環境設定 `CLAUDE_CODE_OAUTH_TOKEN` 環境變數，容器會自動帶入；若只是開發計算機本身的功能，則不需要這個變數。
+> 此 Dev Container 內建 [Claude Code](https://claude.com/claude-code) CLI 與 [GitHub CLI](https://cli.github.com/)（`gh`），方便搭配 AI 輔助開發（例如下方「開發輔助工具」一節提到的 `agent-loop.sh`）與操作 GitHub。需先在**主機**環境設定對應的環境變數，容器會自動帶入：
+>
+> - `claude` 指令：`CLAUDE_CODE_OAUTH_TOKEN`
+> - `gh` 指令：`GH_TOKEN`（GitHub Personal Access Token）
+>
+> 若只是開發計算機本身的功能，則不需要這些變數。
 
 ### 手動安裝
 
