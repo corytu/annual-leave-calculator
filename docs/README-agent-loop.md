@@ -6,8 +6,8 @@
 
 腳本會扮演兩個角色：
 
-- **Coder**（`claude-sonnet-5`，effort `high`）：產出或修改實作計畫，或依審查意見直接修改程式碼
-- **Reviewer**（`claude-opus-5`，effort `high`）：唯讀審查 Coder 的產出，回傳結構化的核准結果
+- **Coder**：產出或修改實作計畫，或依審查意見直接修改程式碼
+- **Reviewer**：唯讀審查 Coder 的產出，回傳結構化的核准結果
 
 兩者輪流審查，直到 Reviewer 回傳 `verdict: approved`，或執行輪數達到上限（預設 5 輪）為止。
 
