@@ -92,8 +92,8 @@ export default function LeaveForm({
               max={periodEndISO}
               onChange={e => setStartDate(e.target.value)}
               onBlur={() => setTouched(t => ({ ...t, startDate: true }))}
-              className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm
-                         focus:outline-none focus:ring-1 focus:ring-teal-500"
+              className="w-full rounded-sm border border-stone-300 px-2 py-1.5 text-sm
+                         focus:outline-invisible focus:ring-1 focus:ring-teal-500"
             />
             <FieldWarnings warnings={startDateWarnings} />
           </div>
@@ -114,8 +114,8 @@ export default function LeaveForm({
                 value={days}
                 onChange={e => setDays(e.target.value)}
                 onBlur={() => setTouched(t => ({ ...t, days: true }))}
-                className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm
-                           focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="w-full rounded-sm border border-stone-300 px-2 py-1.5 text-sm
+                           focus:outline-invisible focus:ring-1 focus:ring-teal-500"
               />
             </div>
             {/* Quick-pick chips */}
@@ -124,7 +124,7 @@ export default function LeaveForm({
                 <button
                   key={n}
                   onClick={() => { setDays(n); setTouched(t => ({ ...t, days: true })) }}
-                  className={`text-xs px-1.5 py-0.5 rounded border transition-colors
+                  className={`text-xs px-1.5 py-0.5 rounded-sm border transition-colors
                               ${Number(days) === n
                                 ? 'bg-teal-100 border-teal-400 text-teal-800'
                                 : 'bg-stone-50 border-stone-200 text-stone-600 hover:border-stone-300'
@@ -144,7 +144,7 @@ export default function LeaveForm({
           <button
             onClick={handleSubmit}
             disabled={fieldWarnings.some(w => isBlocking(w.tier))}
-            className="px-4 py-1.5 bg-teal-700 text-white text-sm font-medium rounded
+            className="px-4 py-1.5 bg-teal-700 text-white text-sm font-medium rounded-sm
                        hover:bg-teal-800 transition-colors
                        disabled:opacity-40 disabled:hover:bg-teal-700"
           >
@@ -153,7 +153,7 @@ export default function LeaveForm({
           {isEditing && (
             <button
               onClick={resetForm}
-              className="px-4 py-1.5 text-stone-600 text-sm rounded hover:bg-stone-100
+              className="px-4 py-1.5 text-stone-600 text-sm rounded-sm hover:bg-stone-100
                          transition-colors"
             >
               取消
@@ -215,7 +215,7 @@ function RecordRow({ record, isEditing, onEdit, onDelete }) {
       <div className="flex gap-1">
         <button
           onClick={onEdit}
-          className="p-1.5 text-stone-400 hover:text-teal-700 rounded transition-colors"
+          className="p-1.5 text-stone-400 hover:text-teal-700 rounded-sm transition-colors"
           aria-label="編輯"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -225,7 +225,7 @@ function RecordRow({ record, isEditing, onEdit, onDelete }) {
         </button>
         <button
           onClick={onDelete}
-          className="p-1.5 text-stone-400 hover:text-red-500 rounded transition-colors"
+          className="p-1.5 text-stone-400 hover:text-red-500 rounded-sm transition-colors"
           aria-label="刪除"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
