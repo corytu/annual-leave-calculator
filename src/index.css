@@ -1,27 +1,100 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* Tailwind v3's `outline-none` was a transparent 2px outline. v4's
+   `outline-none` is `outline-style: none` and `outline-hidden` only restores
+   the transparent outline in forced-colors mode. Chrome rasterises the
+   transparent outline, so to keep the rendering identical to v3 this utility
+   reproduces the v3 definition. (Overriding the built-in `outline-none`
+   doesn't work: v4 merges its own declarations over ours.) */
+@utility outline-invisible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
 
 @layer base {
-  /* Tailwind's preflight resets :disabled to `cursor: default`. Restore the
-     "not allowed" cursor for every disabled control in one place instead of
-     repeating disabled:cursor-not-allowed per element. Specificity (0,1,1)
-     is deliberate: it beats preflight and utilities like cursor-pointer, so
-     "disabled" always wins. */
-  button:disabled,
-  input:disabled,
-  select:disabled,
-  textarea:disabled {
-    cursor: not-allowed;
+  /* ── Tailwind v3 preflight behaviours that v4 dropped ───────────────────
+     Restored so the UI looks and behaves exactly as it did on v3. */
+
+  /* v4 defaults borders to currentColor; v3 used gray-200. */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: #e5e7eb;
   }
 
-  /* Separate rule on purpose: a selector list is dropped entirely if any one
-     selector is unsupported, and :has() is the newest of these. Covers the
-     carry-over switch, whose real <input> is visually hidden so the user
-     actually hovers the wrapping <label>. */
-  label:has(:disabled) {
-    cursor: not-allowed;
+  /* v4 buttons no longer get a pointer cursor. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
   }
+
+  /* v4 makes form fields transparent; v3 left the browser's field colour. */
+  input:not([type='button'], [type='reset'], [type='submit'], [type='checkbox'], [type='radio']),
+  select,
+  textarea {
+    background-color: Field;
+  }
+
+  /* v4 strips the browser's padding/layout inside date inputs, making them
+     2px shorter than on v3. Roll those preflight rules back to the browser
+     defaults. */
+  ::-webkit-datetime-edit {
+    display: revert-layer;
+  }
+
+  ::-webkit-datetime-edit-fields-wrapper {
+    padding: revert-layer;
+  }
+
+  ::-webkit-datetime-edit,
+  ::-webkit-datetime-edit-year-field,
+  ::-webkit-datetime-edit-month-field,
+  ::-webkit-datetime-edit-day-field,
+  ::-webkit-datetime-edit-hour-field,
+  ::-webkit-datetime-edit-minute-field,
+  ::-webkit-datetime-edit-second-field,
+  ::-webkit-datetime-edit-millisecond-field,
+  ::-webkit-datetime-edit-meridiem-field {
+    padding-block: revert-layer;
+  }
+
+  ::-webkit-calendar-picker-indicator {
+    line-height: revert-layer;
+  }
+
+  ::-webkit-date-and-time-value {
+    min-height: revert-layer;
+    text-align: revert-layer;
+  }
+}
+
+/* The rules below are deliberately NOT inside `@layer base`. Under Tailwind
+   v3 `@layer base` only controlled ordering, so specificity decided the
+   winner; under v4 it is a real CSS cascade layer, and the `utilities` layer
+   always beats `base` regardless of specificity. Left unlayered they keep
+   winning over utilities like cursor-pointer, as they did on v3. */
+
+/* Tailwind's preflight resets :disabled to `cursor: default`. Restore the
+   "not allowed" cursor for every disabled control in one place instead of
+   repeating disabled:cursor-not-allowed per element. Specificity (0,1,1)
+   is deliberate: it beats preflight and utilities like cursor-pointer, so
+   "disabled" always wins. */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+/* Separate rule on purpose: a selector list is dropped entirely if any one
+   selector is unsupported, and :has() is the newest of these. Covers the
+   carry-over switch, whose real <input> is visually hidden so the user
+   actually hovers the wrapping <label>. */
+label:has(:disabled) {
+  cursor: not-allowed;
 }
 
 /* ── react-calendar overrides ─────────────────────────────────────────────── */

@@ -217,7 +217,7 @@ export default function Settings({
             onChange={e => setOnboardDate(e.target.value)}
             onBlur={() => setTouched(t => ({ ...t, onboardDate: true }))}
             className="block w-full sm:w-48 rounded-md border border-stone-300 px-3 py-2 text-sm
-                       focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500
+                       focus:outline-invisible focus:ring-2 focus:ring-teal-500 focus:border-teal-500
                        disabled:bg-stone-100 disabled:text-stone-500"
           />
           <p className="text-xs text-stone-400 mt-1">
@@ -344,8 +344,8 @@ export default function Settings({
                                 updateCustomRule(rule.id, 'months', e.target.value)
                               }
                               onBlur={() => setTouched(t => ({ ...t, [`${rule.id}:months`]: true }))}
-                              className="w-20 rounded border border-stone-300 px-2 py-1 text-sm
-                                         focus:outline-none focus:ring-1 focus:ring-teal-500
+                              className="w-20 rounded-sm border border-stone-300 px-2 py-1 text-sm
+                                         focus:outline-invisible focus:ring-1 focus:ring-teal-500
                                          disabled:bg-stone-100 disabled:text-stone-500"
                             />
                             <span className="text-stone-500 text-xs">個月</span>
@@ -365,8 +365,8 @@ export default function Settings({
                                 updateCustomRule(rule.id, 'days', e.target.value)
                               }
                               onBlur={() => setTouched(t => ({ ...t, [`${rule.id}:days`]: true }))}
-                              className="w-20 rounded border border-stone-300 px-2 py-1 text-sm
-                                         focus:outline-none focus:ring-1 focus:ring-teal-500
+                              className="w-20 rounded-sm border border-stone-300 px-2 py-1 text-sm
+                                         focus:outline-invisible focus:ring-1 focus:ring-teal-500
                                          disabled:bg-stone-100 disabled:text-stone-500"
                             />
                             <span className="text-stone-500 text-xs">天</span>
@@ -407,8 +407,8 @@ export default function Settings({
                             aria-label="每年增加天數"
                             onChange={e => setGrowthPerYear(e.target.value)}
                             onBlur={() => setTouched(t => ({ ...t, growthPerYear: true }))}
-                            className="w-16 rounded border border-stone-300 px-2 py-1 text-sm
-                                       focus:outline-none focus:ring-1 focus:ring-teal-500
+                            className="w-16 rounded-sm border border-stone-300 px-2 py-1 text-sm
+                                       focus:outline-invisible focus:ring-1 focus:ring-teal-500
                                        disabled:bg-stone-100 disabled:text-stone-500"
                           />
                           <span>天，上限</span>
@@ -422,8 +422,8 @@ export default function Settings({
                             aria-label="天數上限"
                             onChange={e => setGrowthCap(e.target.value)}
                             onBlur={() => setTouched(t => ({ ...t, growthCap: true }))}
-                            className="w-16 rounded border border-stone-300 px-2 py-1 text-sm
-                                       focus:outline-none focus:ring-1 focus:ring-teal-500
+                            className="w-16 rounded-sm border border-stone-300 px-2 py-1 text-sm
+                                       focus:outline-invisible focus:ring-1 focus:ring-teal-500
                                        disabled:bg-stone-100 disabled:text-stone-500"
                           />
                           <span>天</span>
@@ -456,7 +456,7 @@ export default function Settings({
       {/* ── 遞延 ────────────────────────────────────────────────────────── */}
       <Section title="假期遞延">
         <div className="flex items-start gap-3">
-          <label className="relative mt-0.5 inline-flex flex-shrink-0 cursor-pointer items-center">
+          <label className="relative mt-0.5 inline-flex shrink-0 cursor-pointer items-center">
             <input
               type="checkbox"
               role="switch"
@@ -475,7 +475,7 @@ export default function Settings({
             />
             {/* 圓點 */}
             <span
-              className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow
+              className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm
                         transition-transform peer-checked:translate-x-4"
             />
           </label>
@@ -496,7 +496,7 @@ export default function Settings({
             onClick={() => setDataActionStep('clearHoliday')}
             disabled={!canClearHolidayCacheOnly}
             className="px-4 py-2 text-stone-600 text-sm font-medium rounded-md border border-stone-300
-                       hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-stone-400
+                       hover:bg-stone-100 focus:outline-invisible focus:ring-2 focus:ring-stone-400
                        focus:ring-offset-1 transition-colors
                        disabled:opacity-40 disabled:hover:bg-transparent"
           >
@@ -507,7 +507,7 @@ export default function Settings({
             onClick={() => setDataActionStep('clearAll')}
             disabled={!canClearAllData}
             className="px-4 py-2 text-red-600 text-sm font-medium rounded-md border border-red-200
-                       hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400
+                       hover:bg-red-50 focus:outline-invisible focus:ring-2 focus:ring-red-400
                        focus:ring-offset-1 transition-colors
                        disabled:opacity-40 disabled:hover:bg-transparent"
           >
@@ -524,7 +524,7 @@ export default function Settings({
               onClick={handleSave}
               disabled={fieldWarnings.some(w => isBlocking(w.tier))}
               className="px-5 py-2 bg-teal-700 text-white text-sm font-medium rounded-md
-                         hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500
+                         hover:bg-teal-800 focus:outline-invisible focus:ring-2 focus:ring-teal-500
                          focus:ring-offset-1 transition-colors
                          disabled:opacity-40 disabled:hover:bg-teal-700"
             >
@@ -533,7 +533,7 @@ export default function Settings({
             <button
               onClick={onCancel}
               className="px-5 py-2 text-stone-600 text-sm font-medium rounded-md
-                         hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-stone-400
+                         hover:bg-stone-100 focus:outline-invisible focus:ring-2 focus:ring-stone-400
                          focus:ring-offset-1 transition-colors"
             >
               取消
@@ -544,7 +544,7 @@ export default function Settings({
           onClick={() => setResignStep('confirm')}
           disabled={!isLocked}
           className="px-5 py-2 text-red-600 text-sm font-medium rounded-md border border-red-200
-                     hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400
+                     hover:bg-red-50 focus:outline-invisible focus:ring-2 focus:ring-red-400
                      focus:ring-offset-1 transition-colors
                      disabled:opacity-40 disabled:hover:bg-transparent"
         >
@@ -679,7 +679,7 @@ function RuleTypeCard({ selected, disabled, onClick, title, description }) {
                   ${disabled ? 'opacity-60 hover:border-stone-200' : ''}`}
     >
       <div className="flex items-center gap-2 mb-1">
-        <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center
+        <span className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center
                           ${selected ? 'border-teal-600' : 'border-stone-300'}`}>
           {selected && <span className="w-2 h-2 rounded-full bg-teal-600" />}
         </span>
