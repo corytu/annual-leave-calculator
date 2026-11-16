@@ -6,6 +6,7 @@ import {
   saveRecords,
   clearAll,
   hasAnyAppData,
+  affectedAppData,
   DEFAULT_SETTINGS,
 } from './storage.js'
 
@@ -147,5 +148,39 @@ describe('clearAll', () => {
     expect(localStorage.getItem('leaveCalculator_records')).toBeNull()
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS)
     expect(loadRecords()).toEqual([])
+  })
+})
+
+describe('affectedAppData', () => {
+  it('flags only settings for the settings key', () => {
+    expect(affectedAppData('leaveCalculator_settings')).toEqual({ settings: true, records: false })
+  })
+
+  it('flags only records for the records key', () => {
+    expect(affectedAppData('leaveCalculator_records')).toEqual({ settings: false, records: true })
+  })
+
+  it('flags both when another tab cleared the whole storage (key === null)', () => {
+    expect(affectedAppData(null)).toEqual({ settings: true, records: true })
+  })
+
+  it('ignores holiday-cache keys so they never reset the other tab', () => {
+    expect(affectedAppData('leaveCalculator_holidayCache_2025')).toEqual({ settings: false, records: false })
+  })
+
+  it('ignores unrelated keys', () => {
+    expect(affectedAppData('unrelated')).toEqual({ settings: false, records: false })
+  })
+
+  it('recognises every key that saveSettings/saveRecords actually write', () => {
+    // Guards against renaming a storage key without updating the sync check.
+    saveSettings(DEFAULT_SETTINGS)
+    saveRecords([])
+    const writtenKeys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+    expect(writtenKeys).toHaveLength(2)
+    for (const key of writtenKeys) {
+      const affected = affectedAppData(key)
+      expect(affected.settings || affected.records).toBe(true)
+    }
   })
 })
