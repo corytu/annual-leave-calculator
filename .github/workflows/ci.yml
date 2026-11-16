@@ -1,4 +1,4 @@
-name: PR Verification
+name: CI with coverage measurement
 
 on:
   pull_request:
