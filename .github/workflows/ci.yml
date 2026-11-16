@@ -14,12 +14,15 @@ permissions:
 jobs:
   unit-and-e2e-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # 只給這個 job，供 Codecov 的 OIDC 驗證使用
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
@@ -31,11 +34,11 @@ jobs:
         run: npm run test:coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7.1.1
+        uses: codecov/codecov-action@v7
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: coverage/cobertura-coverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
