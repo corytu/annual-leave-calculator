@@ -1,8 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import MainPage from './components/MainPage.jsx'
 import Settings from './components/Settings.jsx'
-import { loadSettings, saveSettings, loadRecords, saveRecords, clearAll, DEFAULT_SETTINGS } from './utils/storage.js'
+import { loadSettings, saveSettings, loadRecords, saveRecords, clearAll, affectedAppData, DEFAULT_SETTINGS } from './utils/storage.js'
 import { useHolidayCache } from './hooks/useHolidayCache.js'
 
 export default function App() {
@@ -10,6 +10,29 @@ export default function App() {
   const [settings, setSettings] = useState(() => loadSettings())
   const [records, setRecords] = useState(() => loadRecords())
   const { cache: holidayCache, ensureYear, clearCache } = useHolidayCache()
+
+  // ── Cross-tab sync ──────────────────────────────────────────────────────────
+
+  // Bumped whenever another tab changes settings/records; used as the `key`
+  // of both pages below so they remount from the freshly loaded data.
+  const [syncVersion, setSyncVersion] = useState(0)
+
+  // Another tab saved/cleared app data: reload it instead of letting this
+  // tab's stale snapshot overwrite it on the next save. The `storage` event
+  // only fires in *other* tabs, so this tab's own saves never trigger it.
+  // Holiday-cache writes are ignored (affectedAppData returns all false), so
+  // another tab merely downloading holiday data never resets this tab's forms.
+  useEffect(() => {
+    function handleStorage(e) {
+      const affected = affectedAppData(e.key)
+      if (!affected.settings && !affected.records) return
+      if (affected.settings) setSettings(loadSettings())
+      if (affected.records) setRecords(loadRecords())
+      setSyncVersion(v => v + 1)
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
 
   // ── Settings ────────────────────────────────────────────────────────────────
 
@@ -111,8 +134,16 @@ export default function App() {
 
       {/* Page content */}
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-6">
+        {/* key={syncVersion}: remount after another tab changes data.
+            Settings only seeds its form state from `settings` at mount, so
+            without a remount it would show this tab's stale, now-locked form.
+            MainPage/LeaveForm could be mid-edit on a record another tab just
+            deleted; merely clearing editingRecord would leave its values in
+            an "add" form (see handleSelectPeriod in MainPage.jsx), so a
+            remount -- like reloading the page -- is the consistent fix. */}
         {page === 'main' ? (
           <MainPage
+            key={syncVersion}
             settings={settings}
             records={records}
             holidayCache={holidayCache}
@@ -124,6 +155,7 @@ export default function App() {
           />
         ) : (
           <Settings
+            key={syncVersion}
             settings={settings}
             records={records}
             holidayCache={holidayCache}

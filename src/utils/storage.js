@@ -89,6 +89,18 @@ export function clearAll() {
 }
 
 /**
+ * Which app-data slices a cross-tab `storage` event for `key` may have
+ * changed. `key === null` means another tab called localStorage.clear().
+ * Holiday-cache keys are deliberately not app data here (see App.jsx).
+ */
+export function affectedAppData(key) {
+  return {
+    settings: key === null || key === KEYS.settings,
+    records:  key === null || key === KEYS.records,
+  };
+}
+
+/**
  * Whether the user has ever saved settings or records. Only true once
  * `saveSettings`/`saveRecords` has actually run (e.g. via the Settings page
  * save button) -- mounting the app never writes DEFAULT_SETTINGS back to
