@@ -96,7 +96,7 @@ npx playwright install --with-deps chromium
 
 本專案使用 GitHub Actions 進行持續整合與部署：
 
-- **PR 檢查**：每次對 `master` 分支發出 Pull Request 時，CI 會安裝相依套件並依序執行單元測試（Vitest）與端對端測試（Playwright），並將涵蓋率報告上傳至 [Codecov](https://about.codecov.io/) 供 PR 顯示涵蓋率變化。詳見 [`.github/workflows/pr-checks.yml`](.github/workflows/pr-checks.yml)。
+- **CI 檢查**：每次對 `master` 分支發出 Pull Request，或推送至 `master` 分支時，CI 會安裝相依套件並依序執行單元測試（Vitest）與端對端測試（Playwright），並將涵蓋率報告上傳至 [Codecov](https://about.codecov.io/) 供 PR 顯示涵蓋率變化。上傳採用 GitHub OIDC 驗證，不需要在 repo 設定 `CODECOV_TOKEN` secret。詳見 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。
 - **自動部署**：每次推送至 `master` 分支時，CI 流程會：
 
   1. 安裝相依套件
@@ -138,7 +138,7 @@ npx playwright install --with-deps chromium
 - 至少 1 位審查者核准；核准後若再推送新的 commit，先前的核准會被撤銷，須重新取得核准
 - PR 中所有審查討論串（conversation thread）皆已標示為已解決
 - 狀態檢查全數通過：`unit-and-e2e-test`（單元測試 + 端對端測試）、`Analyze (javascript-typescript)`、`Analyze (actions)`（CodeQL 程式碼掃描）、`codecov/patch`（[Codecov](https://about.codecov.io/) 涵蓋率檢查），且分支需與 `master` 保持同步（strict 檢查）
-- PR 修改行的程式碼涵蓋率（範圍限 `src/utils/**`）須達 90%，可容忍下降 3 個百分點，由 Codecov 的 `codecov/patch` 檢查把關
+- PR 修改行的程式碼涵蓋率（範圍限 `src/utils/**`）不得比 base commit 的涵蓋率低超過 3 個百分點，由 Codecov 的 `codecov/patch` 檢查把關
 - 允許 Merge commit、Rebase 或 Squash 方式合併
 
 詳細的開發流程與規範請參考 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
